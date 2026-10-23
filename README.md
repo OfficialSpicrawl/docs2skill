@@ -1,7 +1,9 @@
 # docs2skill: turn any docs site into an agent skill, llms.txt and llms-full.txt
 
 [![test](https://github.com/OfficialSpicrawl/docs2skill/actions/workflows/test.yml/badge.svg)](https://github.com/OfficialSpicrawl/docs2skill/actions/workflows/test.yml)
-[Live demo](https://docs2skill.spicrawl.com) · Apache-2.0
+[Live demo](https://docs2skill.spicrawl.com) · [Demo video (MP4)](videos/out/docs2skill/v1/docs2skill.mp4) · Apache-2.0
+
+![docs2skill demo](videos/out/docs2skill/v1/docs2skill.gif)
 
 Give your **AI agents** and **coding agents** (Claude Code, Codex, Cursor) the docs they need: docs2skill turns any documentation site into a **Claude Code / Codex agent skill**, **llms.txt** and **AGENTS.md** in one command, ready for **RAG** and LLM context. It also ships as an agent skill itself ([`SKILL.md`](SKILL.md)).
 
