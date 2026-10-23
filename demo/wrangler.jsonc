@@ -1,0 +1,15 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "spicrawl-docs2skill-demo",
+  "main": "src/worker.mjs",
+  "account_id": "036bd64d65479473f0effc8c4fb126ff",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "docs2skill.spicrawl.com", "custom_domain": true }],
+  // 2 generate calls per minute per visitor IP (CF-Connecting-IP).
+  "ratelimits": [{ "name": "LIMITER", "namespace_id": "2026102303", "simple": { "limit": 2, "period": 60 } }],
+  "analytics_engine_datasets": [{ "binding": "EVENTS", "dataset": "spicrawl_demo_events" }],
+  // Cloudflare Web Analytics token; leave empty to serve the page without the beacon.
+  "vars": { "BEACON_TOKEN": "" }
+  // Secret, set with `wrangler secret put SPICRAWL_API_KEY` (locally: demo/.dev.vars).
+}
