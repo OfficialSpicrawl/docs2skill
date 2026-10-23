@@ -7,6 +7,8 @@
 
 Give your **AI agents** and **coding agents** (Claude Code, Codex, Cursor) the docs they need: docs2skill turns any documentation site into a **Claude Code / Codex agent skill**, **llms.txt** and **AGENTS.md** in one command, ready for **RAG** and LLM context. It also ships as an agent skill itself ([`SKILL.md`](SKILL.md)).
 
+**Install as an agent skill** (Claude Code, Codex, Cursor and more): `npx skills add OfficialSpicrawl/docs2skill`, then run `npm install` in the installed folder. Or clone it and run it yourself:
+
 Point it at a docs site and get an [agent skill](#turn-docs-into-an-agent-skill) (`SKILL.md`), an `AGENTS.md`, [`llms.txt`](https://llmstxt.org) and `llms-full.txt`, built on the [Spicrawl](https://spicrawl.com) web scraping API. Try it on up to 5 pages in the browser at [docs2skill.spicrawl.com](https://docs2skill.spicrawl.com) (see [`demo/`](demo)), or run the CLI on the whole site.
 
 - `llms.txt` is the index: a title, a one-line summary, and a link plus short description for each page, grouped into sections.
