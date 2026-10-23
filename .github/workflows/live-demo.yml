@@ -41,7 +41,7 @@ jobs:
       - run: node llms-txt.mjs https://docs.spicrawl.com --max 3 --skill spicrawl-docs --out out
         env:
           SPICRAWL_API_KEY: ${{ secrets.SPICRAWL_API_KEY }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: spicrawl-docs-skill
           path: out/
