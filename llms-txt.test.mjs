@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { Spicrawl } from "@spicrawl/sdk";
-import { discover, generate, main, parseSitemap } from "./llms-txt.mjs";
+import { describe, discover, generate, main, parseSitemap } from "./llms-txt.mjs";
 
 const SITE = "https://example.com";
 const urlset = (...locs) => `<?xml version="1.0"?><urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
@@ -35,7 +35,7 @@ const PAGES = {
   [`${SITE}/docs/big`]: { omitted: true, md: "# Big page\n\nThis one was too large to inline, so it is fetched on its own." },
 };
 
-function stubApi({ files = FILES, links = [], pages = PAGES, batchError = false } = {}) {
+function stubApi({ files = FILES, links = [], pages = PAGES, batchError = false, pollError = false } = {}) {
   const calls = [];
   let polls = 0;
   const reply = (body, headers = {}, status = 200) => new Response(body, { status, headers });
@@ -73,6 +73,7 @@ function stubApi({ files = FILES, links = [], pages = PAGES, batchError = false 
       return json({ id: "JOB1", status: "queued", total_items: submitted.length, progress: { total: submitted.length, completed: 0 } }, 202);
     }
     if (route === "GET /v1/batch/JOB1") {
+      if (pollError) return json({ code: "ERR::UPSTREAM::UNAVAILABLE", status: 500, detail: "Polling failed.", retryable: false }, 500);
       const done = ++polls > 1; // first poll: running, second: completed
       return json({ id: "JOB1", status: done ? "completed" : "running", progress: { total: submitted.length, completed: done ? submitted.length : 2 } });
     }
@@ -270,4 +271,73 @@ test("errors are explained: missing key, no credits", async () => {
   assert.equal(await main([SITE, "--out", await mkdtemp(join(tmpdir(), "llms-txt-"))], { spicrawl, pollIntervalMs: 1, log() {}, error: (m) => errors.push(m) }), 1);
   assert.match(errors[0], /Out of credits: Monthly credits used up\./);
   assert.match(errors[0], /Hint: Resets on the 1st\./);
+});
+
+// Page, sitemap and robots.txt text all come from the site being read, so none of it may cost CPU time that grows
+// faster than its length. Each of these took seconds to minutes before the patterns were made linear.
+const fast = async (fn, ms = 100) => {
+  const t = performance.now();
+  const out = await fn();
+  assert.ok(performance.now() - t < ms, `took ${Math.round(performance.now() - t)} ms`);
+  return out;
+};
+
+test("hostile sitemap, robots.txt and markdown are parsed in linear time", async () => {
+  await fast(() => parseSitemap("<loc>" + " ".repeat(200))); // five adjacent \s* groups: 42 s
+  await fast(() => parseSitemap("<loc>".repeat(100_000) + "<![CDATA[".repeat(10_000)));
+  assert.deepEqual(parseSitemap("<urlset><LOC>\n https://a.com/x \n</LOC><loc><![CDATA[https://a.com/y?p=1&amp;q=2]]></loc></urlset>").urls, ["https://a.com/x", "https://a.com/y?p=1&q=2"]);
+
+  // 200k blank lines before the Sitemap line: /^\s*sitemap:/m was quadratic.
+  const files = { [`${SITE}/robots.txt`]: "\n".repeat(200_000) + `Sitemap: ${SITE}/maps/all.xml\n`, [`${SITE}/maps/all.xml`]: urlset(`${SITE}/a`) };
+  assert.deepEqual(await fast(() => discover(stubApi({ files }).spicrawl, SITE)), [`${SITE}/a`]);
+
+  // Markdown links, images and brackets that never close: clean() rescanned to the end from every "[".
+  for (const unit of ["[", "![", "[a](", "![a](", "[a][b](", "[[a]"]) {
+    await fast(() => describe(`# ${unit.repeat(20_000)}`, `${SITE}/p`));
+    await fast(() => describe(`${unit.repeat(20_000)}\n`, `${SITE}/p`));
+  }
+  assert.equal(describe("# [a [b] c](https://x.com/y_(z)) **bold** `code` ![i](s.png) tail", `${SITE}/p`).title, "a b c bold code tail");
+});
+
+test("sitemap and robots.txt bodies are cut at 1 MB before parsing", async () => {
+  const late = `<url><loc>${SITE}/late</loc></url>`;
+  const files = {
+    [`${SITE}/sitemap.xml`]: urlset(`${SITE}/early`).replace("</urlset>", " ".repeat(1_000_000) + late + "</urlset>"),
+  };
+  assert.deepEqual(await discover(stubApi({ files }).spicrawl, SITE), [`${SITE}/early`]);
+
+  const robots = { [`${SITE}/robots.txt`]: `Sitemap: ${SITE}/maps/one.xml\n` + "#".repeat(1_000_000) + `\nSitemap: ${SITE}/maps/two.xml\n`, [`${SITE}/maps/one.xml`]: urlset(`${SITE}/one`), [`${SITE}/maps/two.xml`]: urlset(`${SITE}/two`) };
+  assert.deepEqual(await discover(stubApi({ files: robots }).spicrawl, SITE), [`${SITE}/one`]);
+});
+
+test("sitemap URLs from an index or robots.txt are followed only on the site itself", async () => {
+  const child = (loc) => `<sitemap><loc>${loc}</loc></sitemap>`;
+  const index = `<sitemapindex>${[
+    child("https://evil.test/s.xml"), child("http://169.254.169.254/latest/meta-data/"), child(`${SITE}:6379/s.xml`), child("ftp://example.com/s.xml"),
+    child("https://example.com.evil.test/s.xml"), child("//evil.test/s.xml"), child(`${SITE}/s.xml.gz`), child("https://www.example.com/www.xml"), child("/rel.xml"), child(`${SITE}/ok.xml`),
+  ].join("")}</sitemapindex>`;
+  const files = {
+    [`${SITE}/sitemap.xml`]: index,
+    [`${SITE}/www.xml`]: urlset(`${SITE}/from-www`),
+    [`${SITE}/rel.xml`]: urlset(`${SITE}/from-rel`),
+    [`${SITE}/ok.xml`]: urlset(`${SITE}/from-ok`),
+  };
+  const a = stubApi({ files });
+  assert.deepEqual(await discover(a.spicrawl, SITE, { maxSitemaps: 10 }), [`${SITE}/from-rel`, `${SITE}/from-ok`]);
+  // www.example.com is the same site (as for pages) but is a different URL to fetch, and the stub has no file for it.
+  assert.deepEqual(a.calls.map((c) => c.body.url), [`${SITE}/sitemap.xml`, "https://www.example.com/www.xml", `${SITE}/rel.xml`, `${SITE}/ok.xml`]);
+
+  const robots = {
+    [`${SITE}/robots.txt`]: `Sitemap: https://evil.test/s.xml\n  sitemap: http://localhost:8080/s.xml\nSitemap:${SITE}/maps/all.xml\nSitemap:\n${SITE}/not-a-sitemap-line.xml\n`,
+    [`${SITE}/maps/all.xml`]: urlset(`${SITE}/a`),
+  };
+  const b = stubApi({ files: robots });
+  assert.deepEqual(await discover(b.spicrawl, SITE), [`${SITE}/a`]);
+  assert.deepEqual(b.calls.map((c) => c.body.url), [`${SITE}/sitemap.xml`, `${SITE}/robots.txt`, `${SITE}/maps/all.xml`]);
+});
+
+test("a failure while waiting for the batch cancels it, and the original error is what surfaces", async () => {
+  const { spicrawl, calls } = stubApi({ pollError: true });
+  await assert.rejects(generate(spicrawl, { site: SITE, pollIntervalMs: 1 }), (err) => err.code === "ERR::UPSTREAM::UNAVAILABLE");
+  assert.ok(calls.some((c) => c.method === "POST" && c.path === "/v1/batch/JOB1/cancel")); // the stub answers 404: ignored
 });

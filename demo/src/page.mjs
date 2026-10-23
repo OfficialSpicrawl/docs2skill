@@ -201,6 +201,11 @@ const JS = String.raw`
 
   $("example").addEventListener("click", function () { input.value = "https://docs.spicrawl.com"; input.focus(); });
 
+  function token() {
+    var t = form.querySelector("[name='cf-turnstile-response']");
+    return t ? t.value : "";
+  }
+
   function busy(on) {
     go.disabled = on;
     go.textContent = on ? "Generating..." : "Generate";
@@ -241,7 +246,7 @@ const JS = String.raw`
     var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 100000);
     fetch("/api/generate", {
       method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
-      body: JSON.stringify({ url: input.value.trim(), max: 5 })
+      body: JSON.stringify({ url: input.value.trim(), max: 5, turnstile: token() })
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (res.ok) show(data);
@@ -249,18 +254,25 @@ const JS = String.raw`
       });
     }).catch(function (err) {
       fail({ error: err && err.name === "AbortError" ? "That took too long. Try again, or run the CLI on the whole site." : "Network error. Check your connection and try again." });
-    }).then(function () { clearTimeout(timer); busy(false); });
+    }).then(function () {
+      clearTimeout(timer); busy(false);
+      if (window.turnstile) window.turnstile.reset(); // a token works once
+    });
   });
 })();
 `;
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-export function renderPage({ beaconToken = "", nonce = "" } = {}) {
+export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = "" } = {}) {
   // Cloudflare Web Analytics beacon, only when a token is configured (tokens are hex; anything else is dropped).
   const beacon = /^[\w-]+$/.test(beaconToken)
     ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${beaconToken}"}'></script>`
     : "";
+  // Cloudflare Turnstile, only when a site key is configured. The widget adds a hidden "cf-turnstile-response"
+  // field to the form; the script below sends its value with the request.
+  const widget = turnstileSiteKey ? `<div class="cf-turnstile" data-sitekey="${esc(turnstileSiteKey)}" data-theme="dark"></div>` : "";
+  const challenge = turnstileSiteKey ? `<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>` : "";
   const tab = (id, label, selected) =>
     `<button role="tab" id="tab-${id}" aria-controls="panel-${id}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" type="button">${label}</button>`;
   const panel = (id, hidden) =>
@@ -312,6 +324,7 @@ export function renderPage({ beaconToken = "", nonce = "" } = {}) {
       <button id="example" class="btn small" type="button">Example: docs.spicrawl.com</button>
       <p id="limit" class="note">The demo reads up to 5 pages; the CLI does the whole site.</p>
     </div>
+    ${widget}
     <noscript><p class="note">The demo needs JavaScript. The CLI below does not.</p></noscript>
     <p id="status" role="status" aria-live="polite"></p>
     <div id="error" class="card" role="alert" hidden></div>
@@ -359,6 +372,7 @@ export function renderPage({ beaconToken = "", nonce = "" } = {}) {
 </footer>
 <script${nonce ? ` nonce="${esc(nonce)}"` : ""}>${JS}</script>
 ${beacon}
+${challenge}
 </body>
 </html>
 `;

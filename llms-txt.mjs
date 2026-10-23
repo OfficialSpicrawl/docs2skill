@@ -31,9 +31,13 @@ const decode = (s) => { try { return decodeURIComponent(s); } catch { return s; 
 const clip = (s, n) => (s.length > n ? s.slice(0, n - 3).trimEnd() + "..." : s);
 const firstSentence = (s) => s.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? s;
 
-// Markdown inline syntax -> plain one-line text.
-const clean = (s) =>
-  s.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*`\[\]]/g, "").replace(/\s+/g, " ").trim();
+// Markdown inline syntax -> plain one-line text. Page text is untrusted, so these patterns must stay linear:
+// the classes exclude brackets and parentheses (one nesting level allowed), so a failed match stops at the
+// next one instead of scanning to the end of the text and then trying again from every later "[".
+const LABEL = String.raw`\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\((?:[^()]|\([^()]*\))*\)`;
+const IMAGE = new RegExp(`!${LABEL}`, "g");
+const LINK = new RegExp(LABEL, "g");
+const clean = (s) => s.replace(IMAGE, "").replace(LINK, "$1").replace(/[*`\[\]]/g, "").replace(/\s+/g, " ").trim();
 
 // First block of prose: not a heading, list, quote, table, image or HTML, and long enough to be a sentence.
 function firstParagraph(md) {
@@ -61,31 +65,41 @@ function sectionOf(url) {
 
 const host = (url) => new URL(url).hostname.replace(/^www\./, "");
 
-// Resolve against the site, drop #fragments, keep only http(s) pages on the same site.
-function normalize(raw, origin) {
+// Resolve against the site and return the URL when it is http(s) on the site itself: same host (www. ignored)
+// and port. Pages and sitemaps both go through this, so a listing can never send the tool to another host.
+function onSite(raw, origin) {
   try {
     const u = new URL(raw, origin);
-    u.hash = "";
-    const ok = /^https?:$/.test(u.protocol) && host(u.href) === host(origin) && !NOT_A_PAGE.test(u.pathname);
-    return ok ? u.href : null;
+    return /^https?:$/.test(u.protocol) && host(u.href) === host(origin) && u.port === new URL(origin).port ? u : null;
   } catch {
     return null;
   }
 }
 
-// <urlset> -> page URLs, <sitemapindex> -> child sitemap URLs.
+// A page on the site, without its #fragment; null for anything else.
+function normalize(raw, origin) {
+  const u = onSite(raw, origin);
+  if (!u || NOT_A_PAGE.test(u.pathname)) return null;
+  u.hash = "";
+  return u.href;
+}
+
+// <urlset> -> page URLs, <sitemapindex> -> child sitemap URLs. Linear in the input: no pattern here has
+// adjacent open-ended groups, because the XML comes from the site being read.
 export function parseSitemap(xml) {
-  const locs = [...xml.matchAll(/<loc>\s*(?:<!\[CDATA\[)?\s*(.*?)\s*(?:\]\]>)?\s*<\/loc>/gis)].map((m) => m[1].replace(/&amp;/g, "&"));
+  const locs = [...xml.replace(/<!\[CDATA\[|\]\]>/g, "").matchAll(/<loc>([^<]*)<\/loc>/gi)].map((m) => m[1].trim().replace(/&amp;/g, "&"));
   return /<sitemapindex[\s>]/i.test(xml) ? { urls: [], sitemaps: locs } : { urls: locs, sitemaps: [] };
 }
 
 // Fetch a text file (sitemap, robots.txt) as served. "html" means "the document as retrieved":
 // response_format "text" would run the page-to-text extractor and strip the <loc> tags.
-// A missing file is normal, so only auth and credit problems are fatal here.
+// A missing file is normal, so only auth and credit problems are fatal here. Only the first MAX_FILE
+// characters are parsed: real sitemaps are split at 50,000 URLs, and a bigger body is not worth the CPU.
+const MAX_FILE = 1_000_000;
 async function fetchFile(spicrawl, url) {
   try {
     const r = await spicrawl.scrapeRaw({ url, response_format: "html" });
-    return r.targetStatus >= 400 ? "" : r.body;
+    return r.targetStatus >= 400 || typeof r.body !== "string" ? "" : r.body.slice(0, MAX_FILE);
   } catch (err) {
     if (err instanceof AuthenticationError || err instanceof InsufficientCreditsError) throw err;
     return "";
@@ -99,6 +113,11 @@ export async function discover(spicrawl, site, { include = "", max = 50, maxSite
     const url = normalize(raw, origin);
     return url && new URL(url).pathname.startsWith(include) ? url : null;
   };
+  // Child sitemaps and robots.txt "Sitemap:" lines are followed only on the site itself.
+  const sitemapUrl = (raw) => {
+    const u = onSite(raw, origin);
+    return u && !/\.gz$/i.test(u.pathname) ? u.href : null; // ponytail: gzipped sitemaps are skipped
+  };
 
   // Breadth-first through sitemaps and sitemap indexes. The cap bounds credits spent on huge sites.
   const walk = async (queue) => {
@@ -106,7 +125,7 @@ export async function discover(spicrawl, site, { include = "", max = 50, maxSite
     for (let followed = 0; queue.length && followed < maxSitemaps && found.size < max; followed++) {
       const { urls, sitemaps } = parseSitemap(await fetchFile(spicrawl, queue.shift()));
       urls.map(accept).filter(Boolean).forEach((u) => found.add(u));
-      queue.push(...sitemaps.filter((s) => !/\.gz$/i.test(s))); // ponytail: gzipped sitemaps are skipped
+      for (const s of sitemaps.map(sitemapUrl)) if (s) queue.push(s); // no spread: a 1 MB index can list ~90k
     }
     return [...found].slice(0, max);
   };
@@ -114,7 +133,7 @@ export async function discover(spicrawl, site, { include = "", max = 50, maxSite
   let urls = await walk([`${origin}/sitemap.xml`]);
   if (!urls.length) {
     const robots = await fetchFile(spicrawl, `${origin}/robots.txt`);
-    const listed = [...robots.matchAll(/^\s*sitemap:\s*(\S+)/gim)].map((m) => m[1]);
+    const listed = [...robots.matchAll(/^[ \t]*sitemap:[ \t]*(\S+)/gim)].map((m) => sitemapUrl(m[1])).filter(Boolean);
     urls = await walk(listed.filter((s) => s !== `${origin}/sitemap.xml`));
   }
   if (!urls.length) {
@@ -152,10 +171,11 @@ export async function fetchPages(spicrawl, urls, { js = false, pollIntervalMs, t
     });
     if (done.status !== "completed") log(`Job ${done.status}${done.error_message ? `: ${done.error_message}` : ""}`);
   } catch (err) {
+    // Whatever went wrong while waiting, the job may still be running: stop it spending on the rest. Best effort.
+    await spicrawl.batch.cancel(job.id).catch(() => {});
     if (timeoutMs === undefined || !(err instanceof APITimeoutError)) throw err;
     timedOut = true;
     log(`Job still running after ${timeoutMs / 1000}s; using the pages that finished.`);
-    await spicrawl.batch.cancel(job.id).catch(() => {}); // stop spending on the rest; best effort
   }
 
   const pages = [];

@@ -8,7 +8,7 @@ The Worker does not reimplement anything: it imports `generate` and `buildSkill`
 demo/
   wrangler.jsonc        name, route, bindings, vars
   src/worker.mjs        GET /  ->  HTML      POST /api/generate  ->  JSON
-  src/guards.mjs        limits and the target check (a Worker entry may only export handlers, so they live here)
+  src/guards.mjs        limits, the target check and the rate-limit key (a Worker entry may only export handlers, so they live here)
   src/page.mjs          the page as one string: inline CSS and a small inline script, no framework
   test/worker.test.mjs  node:test with a stubbed env and a stubbed fetch (run by `npm test` in the repo root)
 ```
@@ -24,7 +24,7 @@ npm run demo:dev        # same as: cd demo && npx wrangler dev   ->  http://loca
 curl -s localhost:8787/api/generate -d '{"url":"https://docs.spicrawl.com"}' | head -c 600
 ```
 
-A real run costs about 6 credits (one sitemap request, five pages). No login is needed for `wrangler dev`; the rate limit and Analytics Engine bindings run locally.
+A real run costs 6 credits when the site has a sitemap (one sitemap request, five pages) and up to 13 in the worst case, when discovery has to try everything before the five pages: up to three sitemap files, `robots.txt`, up to three more sitemap files from it, and the homepage links (8 requests). No login is needed for `wrangler dev`; the rate limit and Analytics Engine bindings run locally.
 
 ## Deploy
 
@@ -36,11 +36,21 @@ npx wrangler secret put SPICRAWL_API_KEY     # paste the demo org's key
 npm run demo:deploy                           # from the repo root; or: npx wrangler deploy
 ```
 
-`wrangler.jsonc` routes the custom domain `docs2skill.spicrawl.com` (the zone must be on the account in `account_id`). To turn on Cloudflare Web Analytics, put the site token in `vars.BEACON_TOKEN`; with it empty the page ships no beacon.
+`wrangler.jsonc` routes the custom domain `docs2skill.spicrawl.com` (the zone must be on the account in `account_id`) and sets `workers_dev: false` and `preview_urls: false`, so that domain is the only public address of the Worker. To turn on Cloudflare Web Analytics, put the site token in `vars.BEACON_TOKEN`; with it empty the page ships no beacon.
+
+### Optional: Cloudflare Turnstile
+
+The demo spends a paid key's credits, so a public deployment should have a bot check in front of it. It is off by default and costs nothing to leave off.
+
+1. In the Cloudflare dashboard open Turnstile, add a widget for `docs2skill.spicrawl.com` (Managed mode) and copy its site key and secret.
+2. Put the site key in `vars.TURNSTILE_SITE_KEY` in `wrangler.jsonc` (it is public) and store the secret: `npx wrangler secret put TURNSTILE_SECRET`.
+3. Deploy. The page now shows the widget and sends its token with every run; the Worker verifies the token at `https://challenges.cloudflare.com/turnstile/v0/siteverify` before it checks credits or calls Spicrawl.
+
+Both values must be set; with either one missing the check is off. Locally, Cloudflare's published dummy keys work in `demo/.dev.vars`: site key `1x00000000000000000000AA` (in `vars`) and secret `1x0000000000000000000000000000000AA` (always passes). After enabling it on the real domain, load the page once with the browser console open and confirm there is no Content-Security-Policy error.
 
 ## API
 
-`POST /api/generate` with `{"url": "https://docs.example.com"}`. A bare host works too (`https://` is assumed). Only the site's origin is used. Any `max` above 5 is ignored; a lower one is honoured.
+`POST /api/generate` with `Content-Type: application/json` and `{"url": "https://docs.example.com"}`. A bare host works too (`https://` is assumed). Only the site's origin is used. Any `max` above 5 is ignored; a lower one is honoured. With Turnstile on, the body also carries the widget's token as `"turnstile"`.
 
 ```jsonc
 // 200
@@ -57,6 +67,8 @@ npm run demo:deploy                           # from the repo root; or: npx wran
 | Status | When |
 |---|---|
 | 400 | not JSON or over 4 KiB, or an invalid target (see guards) |
+| 403 | a cross-site request, or the Turnstile check failed (only when Turnstile is on) |
+| 415 | the `Content-Type` is not `application/json` |
 | 422 | no page could be read (blocked, empty, or built in the browser) |
 | 429 | more than 2 runs a minute from one IP (`Retry-After: 60`) |
 | 503 | the demo is out of credits, not configured, or Spicrawl is unavailable |
@@ -68,11 +80,18 @@ The skill name is the hostname in kebab case (`docs.example.com` becomes `docs-e
 
 ## Guards
 
-- **Target.** `http` or `https` only, at most 2048 characters, no username or password. Refused: every IP literal (so `127.*`, `10.*`, `192.168.*`, `172.16-31.*` and `::1` among them, in any spelling the URL parser normalises, such as `2130706433`), `localhost`, `*.local`, `*.internal`, `*.localdomain`, `*.lan`, `*.home.arpa` and hostnames without a dot. Spicrawl blocks private targets itself (`ERR::SECURITY::SSRF_BLOCKED`, 0 credits) as a second layer. A public name that resolves to a private address is that second layer's job.
-- **Rate limit.** `LIMITER` (`ratelimits` binding, 2 per 60 seconds), keyed by `CF-Connecting-IP`. Checked first, so a rejected request costs nothing.
-- **Credits.** Before each run: `GET https://api.spicrawl.com/v1/usage/summary`. Below 100 credits left (`allowance.remaining_micro / 1e6`, unless `allowance.unlimited`) the Worker refuses with "The demo has used its credits for this month. Run it yourself with a free key" and the clone, install and run commands. The summary is cached for 60 seconds with `caches.default`, so a burst of visitors makes one call. If the summary cannot be read, the run is refused (fail closed). `caches.default` does nothing on `*.workers.dev`; on the custom domain it caches.
-- **Batch wait.** The job is polled every 2 seconds for at most 60 seconds. If it is still running, the Worker cancels it, returns the pages that finished and says so in `stats.message`.
-- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`.
+- **Request.** `POST /api/generate` answers 415 unless `Content-Type` is `application/json` (checked before the body is read) and 403 when `Sec-Fetch-Site` is `cross-site`. A page on another site can make a visitor's browser send a form or a no-cors `fetch`, but only with a simple content type such as `text/plain`, and a JSON request from another origin needs a CORS preflight that this Worker never answers. Both checks run before the rate limiter, so a forged request does not use up the visitor's runs.
+- **Target.** `http` or `https` only, at most 2048 characters, no username or password. Refused: every IP literal (so `127.*`, `10.*`, `192.168.*`, `172.16-31.*` and `::1` among them, in any spelling the URL parser normalises, such as `2130706433`), `localhost`, `*.local`, `*.internal`, `*.localdomain`, `*.lan`, `*.home.arpa` and hostnames without a dot. Trailing dots are dropped before those checks, so `127.0.0.1..` and `localhost..` are refused like their dotless forms. Spicrawl blocks private targets itself (`ERR::SECURITY::SSRF_BLOCKED`, 0 credits) as a second layer. A public name that resolves to a private address is that second layer's job.
+- **Sitemaps.** The sitemap, the child sitemaps of a sitemap index and the `Sitemap:` lines of `robots.txt` are followed only when they are on the site being read: same host (`www.` ignored) and same port, over http or https. The first 1 MB of each file is parsed and the parsers run in linear time, so a hostile file cannot burn CPU.
+- **Rate limit.** `LIMITER` (`ratelimits` binding, 2 per 60 seconds), keyed by `CF-Connecting-IP`; an IPv6 visitor is keyed on its /64, because one customer controls every address in it. Checked right after the request checks above, so a rejected request costs nothing.
+- **Human check.** Optional Cloudflare Turnstile (see Deploy). The token is verified before the credit check; a missing, forged or expired token, or a verifier that cannot be reached, refuses the run.
+- **Credits.** Before each run: `GET https://api.spicrawl.com/v1/usage/summary`, then two refusals, both answered with the clone, install and run commands.
+  - *Floor.* Below 100 credits left (`allowance.remaining_micro / 1e6`, unless `allowance.unlimited`): "The demo has used its credits for this month. Run it yourself with a free key".
+  - *Pace.* The month's credits cannot all go in the first hours. The run is refused when `used > limit * elapsed + 5% of limit`, where `used = limit_micro - remaining_micro` and `elapsed` is the share of the allowance month that has passed (`window_start` to `resets_at`, between 0 and 1). Half way through a 1,000-credit month that is 550 credits. Message: "The demo has reached today's share of its credits. Try again tomorrow, or run it yourself". An unlimited allowance is not paced.
+
+  The summary is cached for 60 seconds with `caches.default`, so a burst of visitors makes one call. If the summary cannot be read, or any number in it is missing or malformed, the run is refused (fail closed), also when the answer comes from the cache. `caches.default` does nothing on `*.workers.dev`; on the custom domain it caches.
+- **Batch wait.** The job is polled every 2 seconds for at most 60 seconds. If it is still running, the Worker cancels it, returns the pages that finished and says so in `stats.message`. Any other failure while waiting cancels the job too.
+- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`. With Turnstile on, the CSP also allows `challenges.cloudflare.com` for scripts and frames.
 
 ## Analytics
 
@@ -82,7 +101,7 @@ Each `/api/generate` call writes one data point to the `spicrawl_demo_events` da
 |---|---|
 | `index1` | `docs2skill` |
 | `blob1` | `docs2skill` |
-| `blob2` | outcome: `generated`, `partial`, `no_pages`, `error`, `rate_limited`, `no_credits` or `invalid` |
+| `blob2` | outcome: `generated`, `partial`, `no_pages`, `error`, `rate_limited`, `no_credits` (out of credits, or over the pace), `blocked` (cross-site request or failed Turnstile check) or `invalid` |
 | `blob3` | target host (empty when the request never got that far) |
 | `blob4` | visitor country (`request.cf.country`) |
 | `double1` | credits used |

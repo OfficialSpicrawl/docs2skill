@@ -3,13 +3,17 @@
 import { randomUUID } from "node:crypto";
 import { Spicrawl, isSpicrawlError, AuthenticationError, InsufficientCreditsError, RateLimitError, APITimeoutError, APIConnectionError } from "@spicrawl/sdk";
 import { buildSkill, generate } from "../../llms-txt.mjs";
-import { limits, MAX_PAGES, MIN_CREDITS, parseTarget, skillName } from "./guards.mjs";
+import { limitKey, limits, MAX_PAGES, MIN_CREDITS, parseTarget, skillName } from "./guards.mjs";
 import { renderPage } from "./page.mjs";
 
 const API = "https://api.spicrawl.com";
-const CREDITS_CACHE_KEY = "https://docs2skill.spicrawl.com/__credits"; // synthetic, only ever a cache key
+const CREDITS_CACHE_KEY = "https://docs2skill.spicrawl.com/__budget"; // synthetic, only ever a cache key
+const TURNSTILE_VERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const NO_CREDITS =
   "The demo has used its credits for this month. Run it yourself with a free key (https://app.spicrawl.com):";
+const PACED =
+  "The demo has reached today's share of its credits. Try again tomorrow, or run it yourself with a free key (https://app.spicrawl.com):";
+const PACE_SLACK = 0.05; // of the allowance, on top of the calendar share
 const COMMANDS = [
   "git clone https://github.com/OfficialSpicrawl/docs2skill",
   "cd docs2skill && npm install",
@@ -23,25 +27,54 @@ const json = (body, status = 200, extra = {}) =>
 
 // ---------------------------------------------------------------- credit guard
 
-// Credits left on the demo key, cached for 60 s so a burst of visitors makes one usage call.
-// Infinity when the allowance is unlimited. Throws when the usage call fails (fail closed).
-async function creditsLeft(env, ctx) {
+// What the demo key may still spend, cached for 60 s so a burst of visitors makes one usage call:
+//   left  credits left; Infinity when the allowance is unlimited; NaN when the summary is malformed.
+//   ahead true when usage has run ahead of the calendar: more than the elapsed share of the allowance month
+//         plus PACE_SLACK of it. This keeps the month's credits from going to the first few hours of traffic.
+// Callers refuse unless `left >= MIN_CREDITS` and `!ahead`; both come out refusing on anything malformed.
+// Throws when the usage call fails (fail closed).
+async function budget(env, ctx) {
   const cache = globalThis.caches?.default;
   const key = new Request(CREDITS_CACHE_KEY);
   try {
     const hit = await cache?.match(key);
-    if (hit) return (await hit.json()).remaining ?? Infinity;
+    if (hit) {
+      const c = await hit.json();
+      return { left: c.unlimited ? Infinity : (c.left ?? NaN), ahead: c.ahead !== false }; // JSON has no NaN or Infinity
+    }
   } catch {} // a broken cache only costs one extra usage call
 
   const res = await fetch(`${API}/v1/usage/summary`, { headers: { Authorization: `Bearer ${env.SPICRAWL_API_KEY}` } });
   if (!res.ok) throw new Error(`usage summary HTTP ${res.status}`);
-  const { allowance } = await res.json();
-  const remaining = allowance.unlimited ? Infinity : Math.floor(allowance.remaining_micro / 1e6);
+  const { allowance: a } = await res.json();
+  const unlimited = a.unlimited === true;
+  const left = unlimited ? Infinity : Math.floor(a.remaining_micro / 1e6);
+  const start = Date.parse(a.window_start);
+  const elapsed = Math.min(1, Math.max(0, (Date.now() - start) / (Date.parse(a.resets_at) - start)));
+  // Written so that a NaN anywhere makes `ahead` true.
+  const ahead = !unlimited && !(a.limit_micro - a.remaining_micro <= a.limit_micro * (elapsed + PACE_SLACK));
   if (cache) {
-    const body = JSON.stringify({ remaining: Number.isFinite(remaining) ? remaining : null });
+    const body = JSON.stringify({ left: Number.isFinite(left) ? left : null, unlimited, ahead });
     ctx.waitUntil(cache.put(key, new Response(body, { headers: { "cache-control": "max-age=60" } })).catch(() => {}));
   }
-  return remaining;
+  return { left, ahead };
+}
+
+// Optional Cloudflare Turnstile: with TURNSTILE_SITE_KEY and TURNSTILE_SECRET set, a run needs a token the widget
+// on the page produced. Anything but a clean "success" (no token, rejected, siteverify down) refuses.
+async function isHuman(env, token, ip) {
+  if (!env.TURNSTILE_SITE_KEY || !env.TURNSTILE_SECRET) return true;
+  if (typeof token !== "string" || !token || token.length > 2048) return false;
+  try {
+    const res = await fetch(TURNSTILE_VERIFY, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: env.TURNSTILE_SECRET, response: token, ...(ip !== "unknown" && { remoteip: ip }) }),
+    });
+    return res.ok && (await res.json()).success === true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------- SDK errors, in words a visitor can use
@@ -75,8 +108,16 @@ async function handleGenerate(request, env, ctx) {
     return json(body, status, extra);
   };
 
+  // CSRF. A page on another site can make the visitor's browser POST here with a simple content type (a form or a
+  // no-cors fetch) but not with application/json, which needs a preflight this Worker never answers. Both
+  // checks run before the rate limiter so that such requests do not use up the visitor's runs.
+  if (request.headers.get("sec-fetch-site") === "cross-site") return finish("blocked", 403, { error: "Cross-site requests are not allowed." });
+  if (!/^application\/json\s*(;|$)/i.test(request.headers.get("content-type") ?? "")) {
+    return finish("invalid", 415, { error: "Send Content-Type: application/json." });
+  }
+
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-  if (env.LIMITER && !(await env.LIMITER.limit({ key: ip })).success) {
+  if (env.LIMITER && !(await env.LIMITER.limit({ key: limitKey(ip) })).success) {
     return finish("rate_limited", 429, { error: "Too many runs. The demo allows 2 a minute; try again in a minute." }, { "retry-after": "60" });
   }
 
@@ -93,16 +134,20 @@ async function handleGenerate(request, env, ctx) {
   host = target.host;
 
   if (!env.SPICRAWL_API_KEY) return finish("error", 503, { error: "The demo is not configured yet." });
+  if (!(await isHuman(env, input.turnstile, ip))) {
+    return finish("blocked", 403, { error: "Could not verify the check. Reload the page and try again." });
+  }
 
   try {
-    let left;
+    let room;
     try {
-      left = await creditsLeft(env, ctx);
+      room = await budget(env, ctx);
     } catch (err) {
       console.error("credit check failed:", err.message);
       return finish("error", 503, { error: "Could not check the demo's credits. Try again in a minute." });
     }
-    if (left < MIN_CREDITS) return finish("no_credits", 503, { error: NO_CREDITS, commands: COMMANDS });
+    if (!(room.left >= MIN_CREDITS)) return finish("no_credits", 503, { error: NO_CREDITS, commands: COMMANDS });
+    if (room.ahead) return finish("no_credits", 503, { error: PACED, commands: COMMANDS });
 
     // Finding pages is billed per request on the scrape endpoint; count it from the response header.
     let discoveryCredits = 0;
@@ -161,18 +206,21 @@ export default {
     if (pathname === "/") {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "Method not allowed." }, 405, { allow: "GET, HEAD" });
       const nonce = btoa(randomUUID());
+      const turnstileSiteKey = env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY : "";
+      const challenge = turnstileSiteKey ? " https://challenges.cloudflare.com" : ""; // Turnstile's script and its iframe
       const csp = [
         "default-src 'none'",
-        `script-src 'nonce-${nonce}' https://static.cloudflareinsights.com`,
+        `script-src 'nonce-${nonce}' https://static.cloudflareinsights.com${challenge}`,
         "style-src 'unsafe-inline' https://fonts.googleapis.com",
         "font-src https://fonts.gstatic.com",
         "img-src data:",
         "connect-src 'self' https://cloudflareinsights.com",
+        ...(turnstileSiteKey ? [`frame-src${challenge}`] : []),
         "base-uri 'none'",
         "form-action 'none'",
         "frame-ancestors 'none'",
       ].join("; ");
-      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce }), {
+      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce, turnstileSiteKey }), {
         headers: { ...headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "content-security-policy": csp },
       });
     }
