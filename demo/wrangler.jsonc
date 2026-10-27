@@ -2,7 +2,6 @@
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "spicrawl-docs2skill-demo",
   "main": "src/worker.mjs",
-  "account_id": "036bd64d65479473f0effc8c4fb126ff",
   "compatibility_date": "2026-09-26",
   "compatibility_flags": ["nodejs_compat"],
   // Only the custom domain serves this Worker. A *.workers.dev or preview URL would be a second public address for the
