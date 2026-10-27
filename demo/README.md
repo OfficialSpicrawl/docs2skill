@@ -11,8 +11,8 @@ demo/
   src/guards.mjs        limits, the target check, the rate-limit key and the reference cut (a Worker entry may only export handlers, so they live here)
   src/page.mjs          the page as one string: inline CSS and a small inline script, no framework; also the /llms.txt text and the 404 page
   island/main.jsx       three React islands (border beam, thinking orb, bot avatar), mounted into empty slots of the page
-  build.mjs             bundles the island into public/island.js (esbuild); wrangler runs it before `dev` and `deploy`
-  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut published by ascii.rest), og.png, robots.txt, sitemap.xml, _headers; island.js is generated and gitignored
+  build.mjs             bundles the island into public/island.<hash>.js (esbuild) and writes its name to src/island-url.mjs; wrangler runs it before `dev` and `deploy`, `npm test` before the tests (pretest)
+  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut published by ascii.rest), og.png, robots.txt, sitemap.xml, _headers (fonts and the island are immutable for a year); island.<hash>.js and src/island-url.mjs are generated and gitignored
   DESIGN.md             the brief, the concept and the design system of the page
   test/worker.test.mjs  node:test with a stubbed env and a stubbed fetch (run by `npm test` in the repo root)
 ```
@@ -58,7 +58,7 @@ Both values must be set; with either one missing the check is off. Locally, Clou
 
 `POST /api/generate` with `Content-Type: application/json` and `{"url": "https://docs.example.com"}`. A bare host works too (`https://` is assumed). Only the site's origin is used. Any `max` above 5 is ignored; a lower one is honoured. With Turnstile on, the body also carries the widget's token as `"turnstile"`.
 
-Other routes: `GET /llms.txt` is this site's own index (`LLMS_TXT` in `src/page.mjs`), `GET /SKILL.md` redirects to the skill in the repo's `main`, and any other `GET` answers 404 as a page with a way back (JSON for `/api/*` and for `Accept: application/json`).
+Other routes: `GET /api/stars` answers `{"stars": 1234}` (or `null`) from one GitHub API call an hour, cached with the Cache API, so a visitor never calls api.github.com and the page needs no `connect-src` for it; the page render inlines the count when the cache already has it (and it is at least 10), so the button does not move. `GET /llms.txt` is this site's own index (`LLMS_TXT` in `src/page.mjs`), `GET /SKILL.md` redirects to the skill in the repo's `main`, and any other `GET` answers 404 as a page with a way back (JSON for `/api/*` and for `Accept: application/json`).
 
 ```jsonc
 // 200
@@ -100,7 +100,7 @@ The skill name is the hostname in kebab case (`docs.example.com` becomes `docs-e
 
   The summary is cached for 60 seconds with `caches.default`, so a burst of visitors makes one call. If the summary cannot be read, or any number in it is missing or malformed, the run is refused (fail closed), also when the answer comes from the cache. `caches.default` does nothing on `*.workers.dev`; on the custom domain it caches.
 - **Batch wait.** The job is polled every 2 seconds for at most 60 seconds. If it is still running, the Worker cancels it, returns the pages that finished and says so in `stats.message`. Any other failure while waiting cancels the job too.
-- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`. Fonts, `island.js` and images are same-origin (static assets), the only other host the page may call is `api.github.com` (the star count), and styles are inline (the effect libraries add `<style>` elements at run time). With Turnstile on, the CSP also allows `challenges.cloudflare.com` for scripts and frames.
+- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`. Fonts, `island.js` and images are same-origin (static assets), the page calls no other host (`connect-src 'self'`, plus the analytics hosts when configured), and styles are inline (the effect libraries add `<style>` elements at run time). With Turnstile on, the CSP also allows `challenges.cloudflare.com` for scripts and frames.
 
 ## Analytics
 
