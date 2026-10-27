@@ -2,4 +2,5 @@ node_modules/
 /out/
 .dev.vars
 .wrangler/
-/demo/public/island.js
+/demo/public/island.*
+/demo/src/island-url.mjs

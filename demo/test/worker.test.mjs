@@ -127,8 +127,11 @@ test("GET / serves the page; the beacon only appears with a token", async () => 
   assert.ok(html.includes(`<script nonce="${nonce}">`));
   // Fonts and the island are same-origin; the only other host the page may call is the GitHub API (the star count).
   assert.match(csp, /font-src 'self';/);
-  assert.match(csp, /connect-src 'self' https:\/\/api\.github\.com https:\/\/cloudflareinsights\.com;/);
-  assert.ok(!csp.includes("googleapis") && !csp.includes("gstatic"));
+  assert.match(csp, /connect-src 'self' https:\/\/cloudflareinsights\.com;/); // the star count comes from /api/stars, same origin
+  assert.ok(!csp.includes("googleapis") && !csp.includes("gstatic") && !csp.includes("api.github.com"));
+  assert.ok(html.includes(`src = ISLAND`) || html.includes(`var ISLAND = "/island.`)); // the island's hashed file name
+  assert.ok(html.includes('<meta name="twitter:title"') && html.includes('<meta property="og:image:alt"'));
+  assert.ok(html.includes('<pre class="drift" aria-hidden="true" inert>'));
 
   const beacon = await (await worker.fetch(new Request("https://x.test/"), { ...env, BEACON_TOKEN: "abc123" }, ctx)).text();
   assert.ok(beacon.includes(`<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "abc123"}'></script>`));
@@ -195,6 +198,48 @@ test("the terminal shows what the CLI really printed, and Copy copies only the c
   // Copy: the three commands for the terminal, the install command for the chip: no prompt, no output.
   assert.ok(html.includes(`data-text="${RUN_LINES.map((l) => l.replace(/&/g, "&amp;")).join("&#10;")}"`));
   assert.ok(html.includes('data-text="npx skills add OfficialSpicrawl/docs2skill"'));
+});
+
+test("the star count: one cached GitHub call, served same-origin, inlined once known", async () => {
+  const store = new Map();
+  globalThis.caches = { default: { match: async (req) => store.get(req.url)?.clone(), put: async (req, res) => void store.set(req.url, res) } };
+  let github = 0, answer = { status: 200, body: { stargazers_count: 1234 } };
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    assert.equal(url.host, "api.github.com");
+    assert.ok(new Headers(init.headers).get("user-agent")); // GitHub refuses a call without one
+    github++;
+    return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { "content-type": "application/json" } });
+  };
+  const { env } = makeEnv();
+  const stars = (method = "GET") => worker.fetch(new Request("https://docs2skill.spicrawl.com/api/stars", { method }), env, ctx);
+  const page = async () => (await (await worker.fetch(new Request("https://docs2skill.spicrawl.com/"), env, ctx)).text());
+
+  // before anyone asked: the page renders without the count, and does not wait for GitHub
+  assert.ok(!(await page()).includes("1.2k") && github === 0);
+  const first = await stars();
+  assert.deepEqual(await first.json(), { stars: 1234 });
+  assert.equal(first.headers.get("cache-control"), "public, max-age=300");
+  assert.deepEqual(await (await stars()).json(), { stars: 1234 });
+  assert.equal(github, 1); // the second answer came from the cache
+  const [cached] = store.values();
+  assert.equal(cached.headers.get("cache-control"), "max-age=3600");
+  // now the cache is warm: the page inlines the count, so the button does not move
+  const html = await page();
+  assert.ok(html.includes('<span class="cnt">') && html.includes("<span data-stars>1.2k</span>"));
+  assert.equal(github, 1);
+  assert.equal((await stars("POST")).status, 405);
+
+  // under 10 stars it is not shown; a GitHub failure caches null for a minute and never throws
+  store.clear(); github = 0; answer = { status: 200, body: { stargazers_count: 3 } };
+  await stars();
+  assert.ok((await page()).includes('<span class="cnt" hidden>'));
+  store.clear(); answer = { status: 403, body: { message: "rate limit" } };
+  assert.deepEqual(await (await stars()).json(), { stars: null });
+  assert.equal([...store.values()][0].headers.get("cache-control"), "max-age=60");
+  globalThis.fetch = async () => { throw new Error("offline"); };
+  store.clear();
+  assert.deepEqual(await (await stars()).json(), { stars: null });
 });
 
 test("a long reference file is cut to its first lines in the response", () => {

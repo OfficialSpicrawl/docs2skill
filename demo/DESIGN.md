@@ -16,7 +16,7 @@ The brief, the concept and the system behind `src/page.mjs`. Read this before ch
 Unchanged: a Worker serving one HTML string with inline CSS and a small inline script. Two additions, both built or served by the same `wrangler deploy`:
 
 - `public/` is a Workers static-assets folder: self-hosted Geist, Geist Mono and the 3 KB box-drawing cut from ascii.rest (all woff2), `og.png`, `robots.txt`, `sitemap.xml`, `_headers`, and `island.js` (generated, gitignored).
-- `island/main.jsx` bundles three React islands (border beam, thinking orb, bot avatar; those libraries are React-only) into `public/island.js` with esbuild, run by wrangler's `build.command` (`build.mjs`). They read `<html data-run>`. The page, the form, the demo logic and the two animated scenes stay vanilla; if the island fails to load, the page is complete. It loads after `load`, on idle.
+- `island/main.jsx` bundles three React islands (border beam, thinking orb, bot avatar; those libraries are React-only) into `public/island.js` with esbuild, run by wrangler's `build.command` (`build.mjs`). They read `<html data-run>`. The page, the form, the demo logic and the two animated scenes stay vanilla; if the island fails to load, the page is complete. It loads after `load`, on idle, from a content-hashed file name served with an immutable cache header.
 - The scenes ("How it works", "Run it yourself") are DOM text moved by one 50 ms timer that runs only while one of them is within 120 px of the screen. Their final state is in the HTML (crawlers, no-script and reduced-motion readers get it); the script resets them and plays them in a loop. ascii.rest's pieces own their clocks and cannot be stepped from outside, so the scenes reproduce their vocabulary (box-drawing tree, eighth-block progress bars, a typewriter) in plain DOM instead of mounting them.
 - Next.js or Astro would replace the Worker and its guards. Not worth it for one page.
 
@@ -122,7 +122,11 @@ AA contrast, one `h1`, visible focus ring (lime, 2 px) on every control, skip li
 
 ## The star count
 
-The GitHub button fetches `api.github.com/repos/OfficialSpicrawl/docs2skill` after load, caches the number in `localStorage` for 6 hours, and adds a count segment only from `MIN_STARS_SHOWN` (10) up. Until then, and whenever the request fails, the button is just "Star on GitHub". The number is never typed in.
+The worker serves `GET /api/stars` from one GitHub API call an hour (Cache API; a failure is cached as `null` for a minute), so the unauthenticated rate limit never reaches a visitor and there is no 403 in anyone's console. The page render inlines the count when the cache has it, so the button does not move; otherwise the script asks `/api/stars` and caches the answer in `localStorage` for 6 hours. A count segment appears only from `MIN_STARS_SHOWN` (10) up. Until then, and whenever there is no number, the button is just "Star on GitHub". The number is never typed in.
+
+## Motion limits (WCAG 2.2.2)
+
+Nothing moves on its own for long. The two scenes play twice, then rest on their final frame (scrolling them away and back plays them again); the hero drift makes two passes, then the lines are gone; the bot holds its pose after 20 s idle until a click or a run; under reduced motion all of it is a still, finished frame. Every effect that is state (the beam, the orb, the bot at work) is on only while a run is in flight.
 
 ## Sources and licences
 

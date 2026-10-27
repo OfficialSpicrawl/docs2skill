@@ -3,6 +3,7 @@
 // which reads <html data-run> and nothing else. The page is complete without it.
 // The script is String.raw so its backslashes survive, and it uses no template literals.
 import { buildLlmsTxt, buildSkill } from "../../llms-txt.mjs";
+import { ISLAND_URL } from "./island-url.mjs"; // written by build.mjs: the island's content-hashed file name
 
 const REPO = "https://github.com/OfficialSpicrawl/docs2skill";
 const KEY_URL = "https://app.spicrawl.com";
@@ -15,6 +16,7 @@ const INSTALL = "npx skills add OfficialSpicrawl/docs2skill";
 const CHIPS = ["docs.spicrawl.com", "fastapi.tiangolo.com", "www.mkdocs.org"];
 // A star count under this is not shown: "3" does not help anyone.
 const MIN_STARS_SHOWN = 10;
+const fmtStars = (n) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
 
 // ---------------------------------------------------------------- the sample in the pane
 
@@ -205,7 +207,10 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -.03em; text-wrap: balance; }
   a:hover .r, button:hover:not([disabled]) .r, a:focus-visible .r, button:focus-visible .r { transform: translateY(-100%); }
   .btn, .f, .tbtn, .chip, footer a { transition: color .15s, background-color .15s, border-color .15s, text-decoration-color .15s; }
   .chip { transition: transform .15s var(--ease), color .15s, border-color .15s; }
-  .chip:hover { transform: translateY(-1px); }
+  .chip:hover, .tbtn:hover { transform: translateY(-1px); }
+  .f:hover { transform: translateX(2px); }
+  .brand a { transition: transform .15s var(--ease), color .15s, text-decoration-color .15s; }
+  .brand a:hover { transform: translateX(2px); }
 }
 
 /* ---- header ---- */
@@ -232,8 +237,9 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -.03em; text-wrap: balance; }
 @keyframes d2s-in-l { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .75; } 70% { opacity: .55; } 100% { opacity: 0; transform: translateX(var(--travel)); } }
 @keyframes d2s-in-r { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .75; } 70% { opacity: .55; } 100% { opacity: 0; transform: translateX(calc(var(--travel) * -1)); } }
 @media (prefers-reduced-motion: no-preference) {
-  .drift .l { animation: d2s-in-l var(--dur) linear infinite; animation-delay: var(--dl); }
-  .drift .r { animation: d2s-in-r var(--dur) linear infinite; animation-delay: var(--dl); }
+  /* Two passes, then still (WCAG 2.2.2: nothing moves on its own for more than a few loops). */
+  .drift .l { animation: d2s-in-l var(--dur) linear 2 both; animation-delay: var(--dl); }
+  .drift .r { animation: d2s-in-r var(--dur) linear 2 both; animation-delay: var(--dl); }
 }
 @media (prefers-reduced-motion: reduce) {
   .drift span { opacity: .3; }
@@ -262,7 +268,8 @@ h1 { max-width: 13em; margin: 0 auto 20px; font-size: clamp(2.5rem, 1rem + 5.6vw
 #error { margin: 16px 0 0; padding: 12px 16px; background: var(--paper); border: 1px solid var(--muted); border-radius: var(--radius); font-size: 14px; text-align: left; }
 #error p { margin: 0; }
 #error pre { margin: 12px 0 0; }
-.get { display: flex; justify-content: center; margin-top: 40px; }
+.get { display: flex; flex-direction: column; align-items: center; margin-top: 40px; }
+.get .fine { margin: 10px 0 0; font-size: 13px; }
 
 /* ---- the pane: a file tree and a preview, one surface, one hairline between them ---- */
 .pane-wrap { margin-top: 72px; scroll-margin-top: 84px; text-align: left; }
@@ -298,10 +305,13 @@ h1 { max-width: 13em; margin: 0 auto 20px; font-size: clamp(2.5rem, 1rem + 5.6vw
 #elapsed { color: var(--faint); }
 #msg { margin: 0; padding: 10px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 #slot-bot { display: block; flex: none; width: 36px; height: 36px; margin: 0 2px 0 -6px; }
+#slot-bot:empty { visibility: hidden; }
+@keyframes d2s-fade { from { opacity: 0; } }
 @keyframes d2s-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes d2s-pick { 0%, 11% { background: rgba(74, 167, 77, .09); } 12.5%, 100% { background: transparent; } }
 @media (prefers-reduced-motion: no-preference) {
   .ln.in, .anno.in { animation: d2s-in .18s var(--ease) both; }
+  #slot-bot canvas { animation: d2s-fade .4s both; }
   /* Idle: a reading cursor steps down the page list, one entry at a time. The agent opens only what it needs. */
   .pane:not([data-run=crawl]):not([data-run=write]) .ref { animation: d2s-pick 14.4s linear infinite; animation-delay: calc(var(--k) * 1.8s); }
   .pane[data-run=done] .ref.in { animation: d2s-in .18s var(--ease) both, d2s-pick 14.4s linear infinite; }
@@ -407,6 +417,7 @@ footer a:hover { color: var(--ink); text-decoration-color: var(--ink); }
   .cmd pre { font-size: 12.5px; }
   .actions { margin-left: auto; }
   .stat { flex: 1 1 100%; }
+  .term pre { white-space: pre; overflow-x: auto; }
   .sec { padding-top: 88px; }
   h2 { margin-bottom: 40px; }
   .cta { padding: 112px 0 96px; }
@@ -423,7 +434,7 @@ footer a:hover { color: var(--ink); text-decoration-color: var(--ink); }
 // wrangler's bundler (esbuild with keep_names) wraps named functions in __name(...), which tokens() and rows() carry
 // into the page through toString(); this stand-in keeps them working there.
 const JS =
-  "var __name = function (f) { return f; };\nvar tokens = " + tokens.toString() + ";\nvar rows = " + rows.toString() + ";\nvar MIN_STARS = " + MIN_STARS_SHOWN + ";\n" +
+  "var __name = function (f) { return f; };\nvar ISLAND = " + JSON.stringify(ISLAND_URL) + ";\nvar tokens = " + tokens.toString() + ";\nvar rows = " + rows.toString() + ";\nvar MIN_STARS = " + MIN_STARS_SHOWN + ";\n" +
   String.raw`
 (function () {
   var $ = function (id) { return document.getElementById(id); };
@@ -624,7 +635,8 @@ const JS =
 
   tree(); open("skill");
 
-  // The GitHub star count: cached for 6 hours, never blocks, and the button has no count segment until there is one.
+  // The GitHub star count: the worker serves it from one cached GitHub call an hour (/api/stars); here it is cached for 6 hours,
+  // never blocks, and the button has no count segment until there is one.
   // A count under MIN is left out: "3 stars" does not help anyone. The number always comes from the API.
   (function () {
     var KEY = "d2s:stars", TTL = 6 * 3600 * 1000;
@@ -636,12 +648,12 @@ const JS =
     var cached = null;
     try { cached = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
     if (cached && Number.isInteger(cached.n)) { put(cached.n); if (Date.now() - cached.t < TTL) return; }
-    fetch("https://api.github.com/repos/OfficialSpicrawl/docs2skill", { headers: { Accept: "application/vnd.github+json" } })
+    fetch("/api/stars")
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
-        if (!j || !Number.isInteger(j.stargazers_count)) return;
-        put(j.stargazers_count);
-        try { localStorage.setItem(KEY, JSON.stringify({ n: j.stargazers_count, t: Date.now() })); } catch (e) {}
+        if (!j || !Number.isInteger(j.stars)) return;
+        put(j.stars);
+        try { localStorage.setItem(KEY, JSON.stringify({ n: j.stars, t: Date.now() })); } catch (e) {}
       })
       .catch(function () {});
   })();
@@ -655,17 +667,23 @@ const JS =
     var any = scenes.some(function (s) { return s.on; });
     if (any && !timer) timer = setInterval(function () {
       var now = Date.now();
-      scenes.forEach(function (s) { if (s.on) s.step(now - s.t0); });
+      scenes.forEach(function (s) {
+        if (!s.on) return;
+        if (now - s.t0 >= s.loop * MAX_LOOPS) { s.final(); s.on = false; return; }
+        s.step(now - s.t0);
+      });
     }, 50);
     else if (!any && timer) { clearInterval(timer); timer = null; }
   }
+  var MAX_LOOPS = 2; // a scene plays twice, then rests on its final frame (WCAG 2.2.2); scrolling it back into view plays it again
   function watch(el, s) {
     if (reduce || !("IntersectionObserver" in window)) return;
     scenes.push(s);
     new IntersectionObserver(function (es) {
       var on = es[es.length - 1].isIntersecting;
-      if (on && !s.on) { s.t0 = Date.now(); s.reset(); }
-      s.on = on; sync();
+      if (on && !s.on) { s.t0 = Date.now(); s.reset(); s.on = true; }
+      else if (!on) s.on = false;
+      sync();
     }, { rootMargin: "120px" }).observe(el);
   }
   if (!reduce) root.classList.add("js");
@@ -698,7 +716,14 @@ const JS =
       outs.forEach(function (o, j) { put(o, "o" + j, "show", t >= 5200 + j * 300); });
       put(flow, "fade", "fade", t >= 9100);
     }
-    watch(flow, { on: false, t0: 0, reset: reset, step: step });
+    function final() {
+      last = {};
+      rows.forEach(function (r, i) { r.classList.add("show", "read"); bars[i].textContent = bar(1); });
+      outs.forEach(function (o) { o.classList.add("show"); });
+      steps.forEach(function (li) { li.classList.add("on"); });
+      flow.classList.remove("fade");
+    }
+    watch(flow, { on: false, t0: 0, loop: LOOP, reset: reset, step: step, final: final });
   })();
 
   // The terminal: the commands type in, then the output the CLI really printed, then a tick.
@@ -745,14 +770,20 @@ const JS =
       var fade = t >= LOOP - 700;
       if (last.fade !== fade) { last.fade = fade; term.classList.toggle("fade", fade); }
     }
-    watch(term, { on: false, t0: 0, reset: reset, step: step });
+    function final() {
+      last = {}; cmds.forEach(function (c) { typeTo(c, c.len); c.el.classList.remove("wait"); });
+      outs.forEach(function (o) { o.classList.add("on"); if (o.dataset.b) o.textContent = o.dataset.b; });
+      tick.classList.add("on"); term.classList.remove("fade");
+      if (caret.parentNode) caret.parentNode.removeChild(caret);
+    }
+    watch(term, { on: false, t0: 0, loop: LOOP, reset: reset, step: step, final: final });
   })();
 
   // The effects (React, one island) load after the page has painted.
   window.addEventListener("load", function () {
     (window.requestIdleCallback || function (f) { setTimeout(f, 200); })(function () {
       var s = document.createElement("script");
-      s.type = "module"; s.src = "/island.js"; if (nonce) s.nonce = nonce;
+      s.type = "module"; s.src = ISLAND; if (nonce) s.nonce = nonce;
       document.head.appendChild(s);
     });
   });
@@ -770,8 +801,11 @@ const roll = (html, plain, arrow = false) =>
   `<span class="roll"><span class="r">${html}${arrow ? ARROW : ""}</span><span class="r dup" aria-hidden="true" data-t="${esc(plain)}">${arrow ? ARROW : ""}</span></span>`;
 
 // The count segment is hidden until the GitHub API has answered with a number worth showing (see MIN_STARS_SHOWN).
-const starButton = () =>
-  `<a class="btn star" href="${REPO}" aria-label="Star on GitHub"><span class="lbl">${GITHUB}${roll('<span>Star<span class="lg"> on GitHub</span></span>', "Star on GitHub")}</span><span class="cnt" hidden>${STAR}<span data-stars></span></span></a>`;
+// The worker passes the count when its cache has one (no shift on a warm page); otherwise the script asks /api/stars.
+const starButton = (stars) => {
+  const show = Number.isInteger(stars) && stars >= MIN_STARS_SHOWN;
+  return `<a class="btn star" href="${REPO}" aria-label="Star on GitHub"><span class="lbl">${GITHUB}${roll('<span>Star<span class="lg"> on GitHub</span></span>', "Star on GitHub")}</span><span class="cnt"${show ? "" : " hidden"}>${STAR}<span data-stars>${show ? fmtStars(stars) : ""}</span></span></a>`;
+};
 
 // A command block: [class, text] spans per line. h = the command, t = its arguments, d = values, p = punctuation or comments.
 const cmd = (lines, aria, text) =>
@@ -780,7 +814,7 @@ const cmd = (lines, aria, text) =>
 // The hero background: the sample site's pages (left) and their titles (right), drifting in from the edges.
 const drift = () => {
   const row = (t, side, i, off) => `<span class="${side}" data-t="${esc(t)}" style="--y:${50 + i * 64 + (side === "r" ? 30 : 0)}px;--dur:${11 + ((i * 7 + off) % 5)}s;--dl:-${(i * 2.1 + off).toFixed(1)}s"></span>`;
-  return `<pre class="drift" aria-hidden="true">${PATHS.slice(1).map((t, i) => row(t, "l", i, 0)).join("")}${SAMPLE.titles.map((t, i) => row("# " + t, "r", i, 5)).join("")}</pre>`;
+  return `<pre class="drift" aria-hidden="true" inert>${PATHS.slice(1).map((t, i) => row(t, "l", i, 0)).join("")}${SAMPLE.titles.map((t, i) => row("# " + t, "r", i, 5)).join("")}</pre>`;
 };
 
 // The "how it works" flow, in its final state (the script resets it and plays it): the pages, a bar and a tick each, the output.
@@ -814,7 +848,7 @@ const treeHtml = () =>
     )
     .join("")}</ul>`;
 
-export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = "", analytics = "" } = {}) {
+export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = "", analytics = "", stars = null } = {}) {
   // Cloudflare Web Analytics beacon, only when a token is configured (tokens are hex; anything else is dropped).
   const beacon = /^[\w-]+$/.test(beaconToken)
     ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${beaconToken}"}'></script>`
@@ -862,7 +896,11 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
 <meta property="og:image" content="${SITE_URL}/og.png">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="docs2skill: a docs site turned into an agent skill folder, SKILL.md, llms.txt and AGENTS.md">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${esc(title)}">
+<meta name="twitter:description" content="${esc(desc)}">
+<meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316181B'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23F9F9F9' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/geist-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -874,7 +912,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
 <header class="top">
   <div class="wrap">
     <div class="brand">docs2skill <a href="https://spicrawl.com">by Spicrawl</a></div>
-    ${starButton()}
+    ${starButton(stars)}
   </div>
 </header>
 
@@ -901,7 +939,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
         <div id="error" role="alert" hidden></div>
       </form>
 
-      <div class="get">${cmd([[["p", "$ "], ["h", "npx"], ["t", " skills add"], ["d", " OfficialSpicrawl/docs2skill"]]], "the skill install command", "npx skills add OfficialSpicrawl/docs2skill")}</div>
+      <div class="get">${cmd([[["p", "$ "], ["h", "npx"], ["t", " skills add"], ["d", " OfficialSpicrawl/docs2skill"]]], "the skill install command", "npx skills add OfficialSpicrawl/docs2skill")}<p class="fine">Then run npm install in the installed folder.</p></div>
 
       <div class="pane-wrap" id="pane-wrap">
                 <div class="pane" id="pane" role="group" aria-labelledby="pane-h">
@@ -949,7 +987,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
       <h2 id="cta-h">Give your agent the docs.</h2>
       <div class="row">
         <a class="btn primary lg" href="${KEY_URL}">${roll("Try Spicrawl free", "Try Spicrawl free", true)}</a>
-        ${starButton()}
+        ${starButton(stars)}
       </div>
       <p class="fine">Free key. 1,000 credits a month.</p>
     </div>

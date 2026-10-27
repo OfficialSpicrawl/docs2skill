@@ -26,6 +26,35 @@ const headers = { "x-content-type-options": "nosniff", "referrer-policy": "stric
 const json = (body, status = 200, extra = {}) =>
   new Response(JSON.stringify(body), { status, headers: { ...headers, "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extra } });
 
+// ---------------------------------------------------------------- the GitHub star count
+
+const STARS_API = "https://api.github.com/repos/OfficialSpicrawl/docs2skill";
+const STARS_CACHE_KEY = "https://docs2skill.spicrawl.com/__stars"; // synthetic, only ever a cache key
+
+// One GitHub API call an hour for every visitor (the Cache API), so the unauthenticated limit never reaches a visitor and
+// the page never calls api.github.com itself. With `live: false` it only reads the cache (the page render never waits).
+// null when there is no count: a failure is cached for a minute.
+async function stars(ctx, { live }) {
+  const cache = globalThis.caches?.default;
+  const key = new Request(STARS_CACHE_KEY);
+  try {
+    const hit = await cache?.match(key);
+    if (hit) return (await hit.json()).stars ?? null;
+  } catch {} // a broken cache only costs one more call
+  if (!live) return null;
+  let n = null;
+  try {
+    const res = await fetch(STARS_API, { headers: { accept: "application/vnd.github+json", "user-agent": "docs2skill-demo" }, signal: AbortSignal.timeout(3000) });
+    const body = res.ok ? await res.json() : null;
+    if (Number.isInteger(body?.stargazers_count)) n = body.stargazers_count;
+  } catch {}
+  if (cache) {
+    const put = cache.put(key, new Response(JSON.stringify({ stars: n }), { headers: { "cache-control": `max-age=${n === null ? 60 : 3600}` } })).catch(() => {});
+    ctx.waitUntil(put);
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- credit guard
 
 // What the demo key may still spend, cached for 60 s so a burst of visitors makes one usage call:
@@ -217,15 +246,19 @@ export default {
         "style-src 'unsafe-inline'", // the effect libraries add <style> elements at run time
         "font-src 'self'",
         "img-src 'self' data:",
-        `connect-src 'self' https://api.github.com https://cloudflareinsights.com${op.connect}`, // api.github.com: the star count
+        `connect-src 'self' https://cloudflareinsights.com${op.connect}`,
         ...(turnstileSiteKey ? [`frame-src${challenge}`] : []),
         "base-uri 'none'",
         "form-action 'none'",
         "frame-ancestors 'none'",
       ].join("; ");
-      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce, turnstileSiteKey, analytics: openpanelTag(env, nonce, "docs2skill") }), {
+      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce, turnstileSiteKey, analytics: openpanelTag(env, nonce, "docs2skill"), stars: await stars(ctx, { live: false }) }), {
         headers: { ...headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "content-security-policy": csp },
       });
+    }
+    if (pathname === "/api/stars") {
+      if (request.method !== "GET") return json({ error: "Use GET." }, 405, { allow: "GET" });
+      return json({ stars: await stars(ctx, { live: true }) }, 200, { "cache-control": "public, max-age=300" });
     }
     if (pathname === "/llms.txt") {
       if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "Method not allowed." }, 405, { allow: "GET, HEAD" });

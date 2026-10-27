@@ -11,7 +11,8 @@
     "start": "node llms-txt.mjs",
     "test": "node --test llms-txt.test.mjs demo/test/worker.test.mjs",
     "demo:dev": "cd demo && wrangler dev",
-    "demo:deploy": "cd demo && wrangler deploy"
+    "demo:deploy": "cd demo && wrangler deploy",
+    "pretest": "node demo/build.mjs"
   },
   "engines": {
     "node": ">=18"

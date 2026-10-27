@@ -59,8 +59,17 @@ function Orb() {
 const small = matchMedia("(max-width: 820px), (pointer: coarse)").matches;
 function Bot() {
   const run = useRun();
+  const [rest, setRest] = useState(false);
+  // Looking around forever is motion nobody asked for (WCAG 2.2.2): after 20 s idle the bot holds its pose until a run or a click.
+  useEffect(() => {
+    if (busy(run)) { setRest(false); return; }
+    const id = setTimeout(() => setRest(true), 20000);
+    const wake = () => setRest(false);
+    document.addEventListener("pointerdown", wake);
+    return () => { clearTimeout(id); document.removeEventListener("pointerdown", wake); };
+  }, [run, rest]);
   const label = busy(run) ? "Agent reading docs" : run === "done" ? "Agent with the new skill" : "Agent, idle";
-  return <BotAvatar type="droid" color="#E4E5E7" shading="crisp" size={36} paused={small && !busy(run)} state={busy(run) ? "working" : "default"} aria-label={label} />;
+  return <BotAvatar type="droid" color="#E4E5E7" shading="crisp" size={36} paused={(small || rest) && !busy(run)} state={busy(run) ? "working" : "default"} aria-label={label} />;
 }
 
 const mount = (id, node) => {
