@@ -221,9 +221,11 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -.03em; text-wrap: balance; }
 /* ---- hero ---- */
 .hero { position: relative; overflow: hidden; padding: 56px 0 0; text-align: center; }
 /* The background tells the product: the pages of the sample site drift in from both edges and dissolve before they reach
-   the text, as if being folded into one file. Spans, transform and opacity only; it never sits under text or a control. */
+   the text, as if being folded into one file. Spans, transform and opacity only; it never sits under text or a control.
+   The words are generated content (data-t): decoration, so not text for a reader or a contrast check. */
 .drift { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 0; height: 540px; margin: 0; overflow: hidden; pointer-events: none; color: var(--faint); font: 400 12px/1 var(--mono); }
 .drift span { position: absolute; top: var(--y); opacity: 0; white-space: pre; }
+.drift span::before { content: attr(data-t); }
 .drift .l { left: 24px; }
 .drift .r { right: 24px; text-align: right; }
 @media (min-width: 1200px) { .drift { display: block; } }
@@ -332,8 +334,10 @@ h2 { margin: 0 0 56px; font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); line-
 .steps li::before { counter-increment: s; content: counter(s); color: var(--lime); font: 500 13px var(--mono); }
 .steps h3 { margin: 0; font: 600 22px/1.2 var(--ui); letter-spacing: -.02em; }
 .steps p { grid-column: 2; margin: 4px 0 0; color: var(--muted); font: 400 13px var(--mono); }
-.js .steps li { opacity: .4; transition: opacity .3s; }
-.js .steps li.on { opacity: 1; }
+.js .steps li:not(.on) h3 { color: var(--muted); }
+.js .steps li:not(.on) p { color: var(--faint); }
+.js .steps li:not(.on)::before { color: var(--faint); }
+.js .steps h3, .js .steps p, .js .steps li::before { transition: color .3s; }
 .js .flow .page, .js .flow .out { opacity: 0; transform: translateX(-6px); }
 .js .flow .page.show, .js .flow .out.show { opacity: 1; transform: none; transition: opacity .25s, transform .25s var(--ease); }
 .js .flow .ck { opacity: 0; }
@@ -346,6 +350,7 @@ h2 { margin: 0 0 56px; font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); line-
 .term .tl { display: inline; }
 .term .rs { visibility: hidden; }
 .term .pr { color: var(--faint); }
+.term .wait .pr { visibility: hidden; }
 .term .o { color: var(--muted); }
 .term .k { color: var(--lime); font-weight: 600; }
 .term.anim .o, .term.anim .k { opacity: 0; }
@@ -720,6 +725,7 @@ const JS =
       cmds.forEach(function (c, i) {
         var n = Math.max(0, Math.min(c.len, Math.floor((t - at[i]) * CPS / 1000)));
         var tok = typeTo(c, t < at[i] ? 0 : n);
+        if (last["w" + i] !== (t < at[i])) { last["w" + i] = t < at[i]; c.el.classList.toggle("wait", t < at[i]); }
         if (t >= at[i] && n < c.len) active = tok;
       });
       if (active) active.ty.parentNode.insertBefore(caret, active.ty.nextSibling); else if (caret.parentNode) caret.parentNode.removeChild(caret);
@@ -766,7 +772,7 @@ const cmd = (lines, aria, text) =>
 
 // The hero background: the sample site's pages (left) and their titles (right), drifting in from the edges.
 const drift = () => {
-  const row = (t, side, i, off) => `<span class="${side}" style="--y:${50 + i * 64 + (side === "r" ? 30 : 0)}px;--dur:${11 + ((i * 7 + off) % 5)}s;--dl:-${(i * 2.1 + off).toFixed(1)}s">${esc(t)}</span>`;
+  const row = (t, side, i, off) => `<span class="${side}" data-t="${esc(t)}" style="--y:${50 + i * 64 + (side === "r" ? 30 : 0)}px;--dur:${11 + ((i * 7 + off) % 5)}s;--dl:-${(i * 2.1 + off).toFixed(1)}s"></span>`;
   return `<pre class="drift" aria-hidden="true">${PATHS.slice(1).map((t, i) => row(t, "l", i, 0)).join("")}${SAMPLE.titles.map((t, i) => row("# " + t, "r", i, 5)).join("")}</pre>`;
 };
 
@@ -946,7 +952,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
 <footer>
   <div class="wrap">
     <p>Built on <a href="https://spicrawl.com">Spicrawl</a>. Free key at <a href="${KEY_URL}">app.spicrawl.com</a>.</p>
-    <nav aria-label="Footer"><a href="${DOCS_URL}">Docs</a><a href="${REPO}">GitHub</a><a href="/llms.txt">llms.txt</a><a href="${REPO}/blob/main/LICENSE">Apache-2.0</a><a href="https://ascii.rest">ascii.rest (MIT)</a></nav>
+    <nav aria-label="Footer"><a href="${DOCS_URL}">Docs</a><a href="${REPO}">GitHub</a><a href="/llms.txt">llms.txt</a><a href="${REPO}/blob/main/LICENSE">Apache-2.0</a><a href="https://ascii.rest">ascii.rest</a></nav>
   </div>
 </footer>
 <script type="application/json" id="sample">${sample}</script>

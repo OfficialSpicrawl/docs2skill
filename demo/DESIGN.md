@@ -7,7 +7,7 @@ The brief, the concept and the system behind `src/page.mjs`. Read this before ch
 - **Subject:** docs2skill turns a docs site into `SKILL.md`, `llms.txt`, `llms-full.txt` and `AGENTS.md`, from the CLI or from this page (up to 5 pages).
 - **Audience:** developers who use a coding agent (Claude Code, Codex, Cursor) and want it to know a library's docs.
 - **Job of the page:** (1) run the tool right here and see the output at first paint, (2) give the real command and the skill install, (3) send people to GitHub, the Spicrawl docs and a free Spicrawl key.
-- **Direction from the owner:** closer to firecrawl.dev (a centered, confident hero with one input as the star, crisp mono details, an ASCII texture), clean (few elements per screen, whitespace, one accent, no boxes in boxes, no competing buttons, no decoration without a job), and low on text: the H1 at most 6 words, a one-line sub, 2 to 3 word labels, **120 words or fewer of copy on the page** (a test counts them).
+- **Direction from the owner:** closer to firecrawl.dev (a centered, confident hero with one input as the star, crisp mono details, an ASCII texture), clean (few elements per screen, whitespace, one accent, no boxes in boxes, no competing buttons, no decoration without a job), and low on text: a plain H1 ("Turn any docs site into an agent skill."), a one-line sub, 2 to 3 word labels, **120 words or fewer of copy on the page** (a test counts them). Where a thing can be shown, show it: the sections are an explorer, a live flow and a live terminal.
 - **Constraints:** keep the stack and the deploy (Cloudflare Worker, one HTML string, `wrangler deploy`). Facts come from the README and from the real run in `videos/src/docs2skill/real.ts`. No Spicrawl engine names anywhere.
 - **Why the old page failed:** two identical cards and a third for results, one typeface, no accent, an empty first screen (the output appeared only after a 10 to 40 second wait), and output that did not look like a skill.
 
@@ -16,7 +16,8 @@ The brief, the concept and the system behind `src/page.mjs`. Read this before ch
 Unchanged: a Worker serving one HTML string with inline CSS and a small inline script. Two additions, both built or served by the same `wrangler deploy`:
 
 - `public/` is a Workers static-assets folder: self-hosted Geist, Geist Mono and the 3 KB box-drawing cut from ascii.rest (all woff2), `og.png`, `robots.txt`, `sitemap.xml`, `_headers`, and `island.js` (generated, gitignored).
-- `island/main.jsx` bundles the effects into `public/island.js` with esbuild, run by wrangler's `build.command` (`build.mjs`): three React islands (border beam, thinking orb, bot avatar; those libraries are React-only) and two ascii.rest pieces (vanilla `mount()`, no React). They read `<html data-run>`. The page, the form and the demo logic stay vanilla; if the island fails to load, the page is complete. It loads after `load`, on idle.
+- `island/main.jsx` bundles three React islands (border beam, thinking orb, bot avatar; those libraries are React-only) into `public/island.js` with esbuild, run by wrangler's `build.command` (`build.mjs`). They read `<html data-run>`. The page, the form, the demo logic and the two animated scenes stay vanilla; if the island fails to load, the page is complete. It loads after `load`, on idle.
+- The scenes ("How it works", "Run it yourself") are DOM text moved by one 50 ms timer that runs only while one of them is within 120 px of the screen. Their final state is in the HTML (crawlers, no-script and reduced-motion readers get it); the script resets them and plays them in a loop. ascii.rest's pieces own their clocks and cannot be stepped from outside, so the scenes reproduce their vocabulary (box-drawing tree, eighth-block progress bars, a typewriter) in plain DOM instead of mounting them.
 - Next.js or Astro would replace the Worker and its guards. Not worth it for one page.
 
 ## Concept
@@ -34,7 +35,7 @@ Motion verb: "write". Lines arrive like lines written to a file (6 px rise, 180 
 Screenshot:  Hero at 1440: one line of Geist, the field, the tree and SKILL.md under a dotted ASCII ripple.
 ```
 
-Idle state: the bot at the left of the pane's status line looks around and blinks, the `file-tree` piece in "How it works" opens folder by folder while it is on screen, and a lime reading cursor steps down the page list in SKILL.md. Everything stops under reduced motion. On phones the bot holds a still pose until a run starts. The ASCII ripple behind the hero is one still frame (see Effects).
+Idle state: pages of the sample site drift in from both edges of the hero and dissolve before they reach the text; the bot at the left of the pane's status line looks around and blinks; a lime reading cursor steps down the page list in SKILL.md; "How it works" and "Run it yourself" loop while on screen. Everything stops under reduced motion (the final frame shows). On phones the drift is not shown and the bot holds a still pose until a run starts.
 
 ## System
 
@@ -59,25 +60,28 @@ Idle state: the bot at the left of the pane's status line looks around and blink
 
 **Motion language.** Ease `cubic-bezier(.2, .7, .2, 1)`. Lines rise 6 px and fade over 180 ms (900 ms at most for a file). Filled buttons roll their label and flood to lime on hover and focus; chips lift 1 px; text buttons underline. Page motion is CSS; the libraries run their own loops, pause off screen and hold a still pose under reduced motion.
 
-**Effects, one per area** (libraries.dev rules; ascii.rest pieces cap at 2).
+**Effects, one per area** (libraries.dev rules: a wait over 3 s gets an orb and a beam; never two effects on one element).
 
 | Area | Effect | State |
 |---|---|---|
-| Behind the hero, in the two bands beside the headline | ascii.rest `wave-interference`, one still frame on a canvas (so the h1 stays the LCP), masked so it never sits behind text or a control | static; not shown on phones |
+| Hero background, the two bands beside the headline | 14 text lines, CSS `transform` and `opacity` only: the sample's page paths (left) and their titles (right) drift 140 px inward over 11 to 15 s and dissolve before the text. Never under text or a control | runs; a still faint frame under reduced motion; not shown under 1200 px |
 | The URL field | `border-beam` `line`, mono | active while a run is in flight |
-| The pane bar, left | `thinking-orbs` 20 px beside the status label | `searching` + "Crawling docs", then `composing` + "Writing SKILL.md" |
-| The pane bar, before the status label | `bot-avatars` droid, light grey, 36 px, crisp shading | `working` while the run is in flight, `default` otherwise |
-| "How it works" | ascii.rest `file-tree`, fed the sample site's real pages | opens folder by folder, the "find" step |
+| The pane bar | `bot-avatars` droid (light grey, 36 px, crisp shading), then `thinking-orbs` 20 px beside the status label | bot `working` while the run is in flight; orb `searching` + "Crawling docs", then `composing` + "Writing SKILL.md" |
+| How it works | DOM flow in a `<pre>`: Find (the 8 pages appear), Read (each gets an eighth-block bar that fills, then a tick), Write (the output folder appears); the three steps beside it light in turn | loops every 9.8 s while on screen |
+| Run it yourself | DOM terminal: the three commands type in with a caret, then the CLI's recorded output lines appear, then a tick | loops every 12 s while on screen; Copy always copies the plain commands |
 | h1 | none | Liquid metal is WebGL, and the h1 is the LCP element and real text |
 
-The status text is honest: the Worker answers once, so the page can only say "Crawling docs" while it waits and "Writing SKILL.md" while the returned files are written into the pane; it invents no per-page progress. Performance, measured in a software-rendered browser: a masked canvas repainting 24 times a second took scrolling from 60 to 17 fps and the plastic bot from 60 to 34, so the ripple is a still frame and the bot uses the crisp rim (59 fps scrolling, 48 fps with a 4x CPU throttle; on a throttled phone 52 to 60). Phones also hold the bot's pose until a run starts.
+Everything the scenes show is real: the pages and titles are the sample run's, the terminal output is the CLI's recorded log (a test compares it with `videos/src/docs2skill/real.ts`), and the status text is honest: the Worker answers once, so the page can only say "Crawling docs" while it waits and "Writing SKILL.md" while the returned files are written into the pane.
+
+Performance, measured in a software-rendered browser: a masked canvas repainting 24 times a second took scrolling from 60 to 17 fps and the plastic bot from 60 to 34, so there is no canvas loop and the bot uses the crisp rim (59 fps scrolling, 48 fps with a 4x CPU throttle; on a throttled phone 52 to 60). The scenes touch a few spans every 50 ms and only while on screen. Phones also hold the bot's pose until a run starts.
 
 ## Composition
 
 ```
 HEADER   docs2skill by Spicrawl                                       [GitHub Star on GitHub]
-HERO              Docs in. Agent skill out.                (Geist 600, "Agent skill" in lime)
-         SKILL.md, llms.txt and AGENTS.md from any docs URL.
+HERO         Turn any docs site into an agent skill.      (Geist 600, "agent skill" in lime)
+ /credits      Paste a docs URL. Get files Claude Code, Codex and Cursor can use.     # Credits
+   /errors   (paths drift in from the edges)                                        # Errors
          [docs2skill  https://docs.acme.dev                  [Generate]]     (button inside the field)
               (docs.spicrawl.com) (fastapi.tiangolo.com) (www.mkdocs.org)
                    $ npx skills add OfficialSpicrawl/docs2skill   Copy
@@ -90,20 +94,20 @@ HERO              Docs in. Agent skill out.                (Geist 600, "Agent sk
          |     `- references/  | - [Spicrawl](references/index.md): ...           |
          +----------------------------------------------------------------------+
                          How it works
-              (ascii file tree)        1 Find  2 Read  3 Write
+         docs.spicrawl.com/ (pages, bars)      1 Find  2 Read  3 Write
                         Run it yourself
-                  3 lines of code, one Copy
+              a terminal: 3 commands typed, the CLI's output, a tick   Copy
                   Give your agent the docs.
                 [Try Spicrawl free ->] [Star on GitHub]
                       Free key. 1,000 credits a month.
-FOOTER   Built on Spicrawl. Free key at app.spicrawl.com.        Docs GitHub llms.txt Apache-2.0 ascii.rest (MIT)
+FOOTER   Built on Spicrawl. Free key at app.spicrawl.com.        Docs GitHub llms.txt Apache-2.0 ascii.rest
 ```
 
-The page is about 2,400 px tall at 1440 and 2,800 px at 390.
+The page is about 2,400 px tall at 1440 and 2,800 px at 390. The headline fits on two lines at 1440 and three at 390.
 
 ## Genericness test
 
-A generic model asked for "a landing page for a docs-to-skill tool" would write a hero over a gradient, three feature cards, a stats row and a purple glow. This page has no gradient, no cards, no stat tiles, no eyebrow labels, and its hero is the product's real output as a file tree and a file. Cut after the test: a folder section, a feature row, an options tab, an agent-prompt tab, section rules, the pane's shadow and the markdown marks on headings.
+A generic model asked for "a landing page for a docs-to-skill tool" would write a hero over a gradient, three feature cards, a stats row and a purple glow. This page has no gradient, no cards, no stat tiles, no eyebrow labels, and its hero is the product's real output as a file tree and a file. Cut after the test: a folder section, a feature row, an options tab, an agent-prompt tab, section rules, the pane's shadow, the markdown marks on headings, and an ASCII ripple behind the hero ("not intuitive": it told no story, so the background now shows the pages being folded in).
 
 ## Agent-native
 
@@ -124,7 +128,7 @@ The GitHub button fetches `api.github.com/repos/OfficialSpicrawl/docs2skill` aft
 
 | Piece | From | Licence |
 |---|---|---|
-| `ascii.rest` 0.4.x (`mount`, `wave-interference`, `file-tree`; the box-drawing font cut) | npm, bundled into `island.js` | MIT (credited in the footer) |
+| ascii.rest (the 3 KB box-drawing font cut below, and the vocabulary of its tree, progress-bar and typewriter pieces, reproduced in plain DOM) | https://ascii.rest, MIT. No ascii.rest code is bundled; its pieces were tried and rejected because they cannot be driven from outside | credited in the footer |
 | `bot-avatars`, `thinking-orbs`, `border-beam` | libraries.dev (npm), bundled into `island.js` | MIT |
 | `react`, `react-dom` | npm, bundled into `island.js` | MIT |
 | Geist, Geist Mono (variable, latin) | `@fontsource-variable/geist`, `@fontsource-variable/geist-mono` | SIL OFL 1.1 |

@@ -10,14 +10,14 @@ demo/
   src/worker.mjs        GET /  ->  HTML    GET /llms.txt    GET /SKILL.md  ->  302    POST /api/generate  ->  JSON    404 page
   src/guards.mjs        limits, the target check, the rate-limit key and the reference cut (a Worker entry may only export handlers, so they live here)
   src/page.mjs          the page as one string: inline CSS and a small inline script, no framework; also the /llms.txt text and the 404 page
-  island/main.jsx       the effects: three React islands (border beam, thinking orb, bot avatar) and two ascii.rest pieces, mounted into empty slots of the page
+  island/main.jsx       three React islands (border beam, thinking orb, bot avatar), mounted into empty slots of the page
   build.mjs             bundles the island into public/island.js (esbuild); wrangler runs it before `dev` and `deploy`
-  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut from ascii.rest), og.png, robots.txt, sitemap.xml, _headers; island.js is generated and gitignored
+  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut published by ascii.rest), og.png, robots.txt, sitemap.xml, _headers; island.js is generated and gitignored
   DESIGN.md             the brief, the concept and the design system of the page
   test/worker.test.mjs  node:test with a stubbed env and a stubbed fetch (run by `npm test` in the repo root)
 ```
 
-The page needs no framework: the demo (form, file tree, preview, Copy, Download, star count) is plain script in `page.mjs`. The effects are bundled apart: the libraries.dev packages (`border-beam`, `thinking-orbs`, `bot-avatars`) are React, the [ascii.rest](https://ascii.rest) pieces (MIT) are plain DOM. They read `<html data-run="idle|crawl|write|done|error">`, which the page script sets, and nothing else; without `island.js` the page is complete. The page keeps to 120 words of copy and a test counts them: add words, and `npm test` says so. `DESIGN.md` has the rest of the rules.
+The page needs no framework: the demo (form, file tree, preview, Copy, Download, star count) and the two animated scenes (the "How it works" flow and the terminal, which prints the CLI's recorded output) are plain script in `page.mjs`. Only the three libraries.dev effects (`border-beam`, `thinking-orbs`, `bot-avatars`) are React, so they are bundled apart. They read `<html data-run="idle|crawl|write|done|error">`, which the page script sets, and nothing else; without `island.js` the page is complete. The page keeps to 120 words of copy and a test counts them: add words, and `npm test` says so. `DESIGN.md` has the rest of the rules.
 
 ## Run it locally
 
