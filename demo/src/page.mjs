@@ -172,7 +172,7 @@ html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
 body { margin: 0; background: var(--ground); color: var(--ink); font: 400 16px/1.5 var(--ui); -webkit-font-smoothing: antialiased; }
 [hidden] { display: none !important; }
 ::selection { background: var(--lime); color: var(--ground); }
-a { color: var(--ink); text-decoration-color: var(--line); text-underline-offset: 4px; }
+a { color: var(--ink); text-decoration-color: var(--line); text-underline-offset: 4px; border-radius: 4px; }
 a:hover { text-decoration-color: var(--ink); }
 :focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
 .wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--gut); }
@@ -223,14 +223,14 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -.03em; text-wrap: balance; }
 /* The background tells the product: the pages of the sample site drift in from both edges and dissolve before they reach
    the text, as if being folded into one file. Spans, transform and opacity only; it never sits under text or a control.
    The words are generated content (data-t): decoration, so not text for a reader or a contrast check. */
-.drift { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 0; height: 540px; margin: 0; overflow: hidden; pointer-events: none; color: var(--faint); font: 400 12px/1 var(--mono); }
+.drift { display: none; position: absolute; left: 0; right: 0; top: 0; z-index: 0; height: 540px; margin: 0; overflow: hidden; pointer-events: none; color: var(--muted); font: 400 13px/1 var(--mono); }
 .drift span { position: absolute; top: var(--y); opacity: 0; white-space: pre; }
 .drift span::before { content: attr(data-t); }
 .drift .l { left: 24px; }
 .drift .r { right: 24px; text-align: right; }
 @media (min-width: 1200px) { .drift { display: block; } }
-@keyframes d2s-in-l { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .5; } 70% { opacity: .35; } 100% { opacity: 0; transform: translateX(var(--travel)); } }
-@keyframes d2s-in-r { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .5; } 70% { opacity: .35; } 100% { opacity: 0; transform: translateX(calc(var(--travel) * -1)); } }
+@keyframes d2s-in-l { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .75; } 70% { opacity: .55; } 100% { opacity: 0; transform: translateX(var(--travel)); } }
+@keyframes d2s-in-r { 0% { opacity: 0; transform: translateX(0); } 20% { opacity: .75; } 70% { opacity: .55; } 100% { opacity: 0; transform: translateX(calc(var(--travel) * -1)); } }
 @media (prefers-reduced-motion: no-preference) {
   .drift .l { animation: d2s-in-l var(--dur) linear infinite; animation-delay: var(--dl); }
   .drift .r { animation: d2s-in-r var(--dur) linear infinite; animation-delay: var(--dl); }
@@ -318,13 +318,13 @@ h1 { max-width: 13em; margin: 0 auto 20px; font-size: clamp(2.5rem, 1rem + 5.6vw
 /* ---- sections: whitespace, not lines ---- */
 .sec { padding: 120px 0 0; text-align: center; }
 h2 { margin: 0 0 56px; font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); line-height: 1.1; }
-.how { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 300px); gap: 64px; justify-content: center; align-items: center; text-align: left; }
+.how { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 72px; max-width: 880px; margin: 0 auto; align-items: center; text-align: left; }
 /* The flow: the sample's pages found, read and written, lit in turn with the steps beside it. A <pre> of spans, aria-hidden. */
-.flow { margin: 0; color: var(--muted); font: 400 14px/26px var(--mono); white-space: pre; transition: opacity .5s; }
+.flow { margin: 0; color: var(--muted); font: 400 16px/30px var(--mono); white-space: pre; transition: opacity .5s; }
 .flow.fade { opacity: 0; }
-.fl { display: block; height: 26px; }
+.fl { display: block; height: 30px; }
 .fl .g { color: var(--line); }
-.fl .nm { display: inline-block; min-width: 21ch; color: var(--code); }
+.fl .nm { display: inline-block; min-width: 22ch; color: var(--code); }
 .fl .bar { display: inline-block; min-width: 8ch; color: var(--lime); }
 .fl .ck { display: inline-block; width: 2ch; margin-left: 1ch; color: var(--lime); }
 .fl.out + .fl:not(.out) { margin-top: 0; }
@@ -332,8 +332,8 @@ h2 { margin: 0 0 56px; font-size: clamp(1.75rem, 1.1rem + 1.6vw, 2.25rem); line-
 .steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 28px; counter-reset: s; }
 .steps li { display: grid; grid-template-columns: 28px 1fr; gap: 0 16px; align-items: baseline; }
 .steps li::before { counter-increment: s; content: counter(s); color: var(--lime); font: 500 13px var(--mono); }
-.steps h3 { margin: 0; font: 600 22px/1.2 var(--ui); letter-spacing: -.02em; }
-.steps p { grid-column: 2; margin: 4px 0 0; color: var(--muted); font: 400 13px var(--mono); }
+.steps h3 { margin: 0; font: 600 26px/1.2 var(--ui); letter-spacing: -.02em; }
+.steps p { grid-column: 2; margin: 4px 0 0; color: var(--muted); font: 400 14px var(--mono); }
 .js .steps li:not(.on) h3 { color: var(--muted); }
 .js .steps li:not(.on) p { color: var(--faint); }
 .js .steps li:not(.on)::before { color: var(--faint); }
@@ -380,8 +380,14 @@ footer a:hover { color: var(--ink); text-decoration-color: var(--ink); }
   .tree .g, .tree .dir { display: none; }
   .f { white-space: nowrap; min-height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; line-height: 30px; }
   .f[aria-current=true] { border-color: var(--lime); }
-  .how { grid-template-columns: minmax(0, 1fr); gap: 40px; justify-items: center; }
-  .steps { justify-self: stretch; max-width: 360px; width: 100%; margin: 0 auto; }
+  .how { grid-template-columns: minmax(0, 1fr); gap: 36px; justify-items: center; }
+  .flow { font-size: 14px; line-height: 28px; }
+  .fl { height: 28px; }
+  .steps { order: -1; justify-self: stretch; width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .steps li { grid-template-columns: 1fr; gap: 6px; }
+  .steps li::before { margin-bottom: 0; }
+  .steps h3 { font-size: 20px; }
+  .steps p { grid-column: 1; font-size: 12px; }
   .sec { padding-top: 112px; }
 }
 @media (max-width: 560px) {
@@ -585,7 +591,8 @@ const JS =
     if (running) return;
     errorEl.hidden = true;
     busy(true);
-    if (window.matchMedia("(max-width: 820px)").matches) $("pane-wrap").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    var below = $("pane-wrap").getBoundingClientRect().top - 120; // the status line must be on screen while it runs
+    if (below > window.innerHeight * 0.35 - 120) window.scrollBy({ top: below, behavior: reduce ? "auto" : "smooth" });
     var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 100000);
     fetch("/api/generate", {
       method: "POST", headers: { "content-type": "application/json" }, signal: ctl.signal,
@@ -787,7 +794,7 @@ const flow = () => {
 
 // The terminal, in its final state: the three commands (typed by the script), the CLI's real output, a tick.
 const terminal = () => {
-  const tok = ([c, t]) => `<span class="${c}"><span class="ty">${esc(t)}</span><span class="rs"></span></span>`;
+  const tok = ([c, t]) => `<span class="${c}"><span class="ty">${esc(t).replace(/\//g, "/\u200b")}</span><span class="rs"></span></span>`;
   const cmds = [
     [["h", "git"], ["t", " clone"], ["d", " https://github.com/OfficialSpicrawl/docs2skill"], ["p", " && "], ["h", "cd"], ["d", " docs2skill"], ["p", " && "], ["h", "npm"], ["t", " install"]],
     [["h", "export"], ["t", " SPICRAWL_API_KEY"], ["p", "="], ["d", "spicrawl_live_..."]],
