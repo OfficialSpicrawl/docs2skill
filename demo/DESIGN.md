@@ -15,7 +15,7 @@ The brief, the concept and the system behind `src/page.mjs`. Read this before ch
 
 Unchanged: a Worker serving one HTML string with inline CSS and a small inline script. Two additions, both built or served by the same `wrangler deploy`:
 
-- `public/` is a Workers static-assets folder: self-hosted Geist, Geist Mono and the 3 KB box-drawing cut from ascii.rest (all woff2), `og.png`, `robots.txt`, `sitemap.xml`, `_headers`, and `island.js` (generated, gitignored).
+- `public/` is a Workers static-assets folder: self-hosted Geist, Geist Mono, Righteous (the H1 only) and the 3 KB box-drawing cut from ascii.rest (all woff2), `og.png`, `robots.txt`, `sitemap.xml`, `_headers`, and `island.js` (generated, gitignored).
 - `island/main.jsx` bundles three React islands (border beam, thinking orb, bot avatar; those libraries are React-only) into `public/island.js` with esbuild, run by wrangler's `build.command` (`build.mjs`). They read `<html data-run>`. The page, the form, the demo logic and the two animated scenes stay vanilla; if the island fails to load, the page is complete. It loads after `load`, on idle, from a content-hashed file name served with an immutable cache header.
 - The scenes ("How it works", "Run it yourself") are DOM text moved by one 50 ms timer that runs only while one of them is within 120 px of the screen. Their final state is in the HTML (crawlers, no-script and reduced-motion readers get it); the script resets them and plays them in a loop. ascii.rest's pieces own their clocks and cannot be stepped from outside, so the scenes reproduce their vocabulary (box-drawing tree, eighth-block progress bars, a typewriter) in plain DOM instead of mounting them.
 - Next.js or Astro would replace the Worker and its guards. Not worth it for one page.
@@ -32,7 +32,7 @@ Signature:   The pane. Full at first paint (a real run of docs.spicrawl.com); a 
 Emotion:     Quiet, exact, a little pleased.
 Motion verb: "write". Lines arrive like lines written to a file (6 px rise, 180 ms). Primary buttons answer
              with a line feed: the label rolls up and the next copy rolls in, and the fill floods with the accent.
-Screenshot:  Hero at 1440: one line of Geist, the field, the tree and SKILL.md under a dotted ASCII ripple.
+Screenshot:  Hero at 1440: the two-line Righteous headline, the field, the tree and SKILL.md under a dotted ASCII ripple.
 ```
 
 Idle state: pages of the sample site drift in from both edges of the hero and dissolve before they reach the text; the bot at the left of the pane's status line looks around and blinks; a lime reading cursor steps down the page list in SKILL.md; "How it works" and "Run it yourself" loop while on screen. Everything stops under reduced motion (the final frame shows). On phones the drift is not shown and the bot holds a still pose until a run starts.
@@ -52,7 +52,7 @@ Idle state: pages of the sample site drift in from both edges of the hero and di
 | faint | `#91969D` | punctuation, notes (5.4:1 on paper) |
 | lime | `#4AA74D` | `oklch(65% .155 144)`: "Agent skill" in the H1, the two labels, the selected file, step numbers, focus ring, the fill on a hovered button (5.8:1 on ground) |
 
-**Type.** Geist (variable, 600 for headings at -0.03em, 400 for body) and Geist Mono for files, commands and labels, both OFL, self-hosted, latin. Box-drawing glyphs, which the latin subset lacks, come from a 3 KB cut of JetBrains Mono (OFL) that ascii.rest publishes, listed after Geist Mono with a `unicode-range`. H1 `clamp(2.5rem, 1rem + 6.4vw, 4.5rem)`; body 16 px at 1.5; labels 13 px.
+**Type.** Geist (variable, 600 for headings at -0.03em, 400 for body) and Geist Mono for files, commands and labels, both OFL, self-hosted, latin. The hero H1, and only that, is Righteous (spicrawl.com's display face, one weight: 400, so no faux bold; tracking -0.01em, line-height 1.1), self-hosted as a latin woff2 and preloaded like Geist, `font-display: swap`. Its fallback is `Righteous Fallback`: local Arial with `size-adjust` 106.49% and the ascent and descent overrides from Righteous's hhea metrics, measured on the H1's own text, so the swap moves nothing (CLS 0.0004 at 1440 and 0 at 390 with the file held back 2 s; re-measure if the H1 text changes). H2, H3 and the 404's H1 stay Geist. Box-drawing glyphs, which the latin subset lacks, come from a 3 KB cut of JetBrains Mono (OFL) that ascii.rest publishes, listed after Geist Mono with a `unicode-range`. H1 `clamp(2.5rem, 1rem + 5.6vw, 4.5rem)`; body 16 px at 1.5; labels 13 px.
 
 **Grid.** One centered column, `max-width: 1120px`, 24 px gutters (16 px at 390). The pane spans the column; everything else is centered inside it. Sections are separated by 120 px of space, not lines.
 
@@ -79,7 +79,7 @@ Performance, measured in a software-rendered browser: a masked canvas repainting
 
 ```
 HEADER   docs2skill by Spicrawl                                       [GitHub Star on GitHub]
-HERO         Turn any docs site into an agent skill.      (Geist 600, "agent skill" in lime)
+HERO         Turn any docs site into an agent skill.      (Righteous 400, "agent skill" in lime)
  /credits      Paste a docs URL. Get files Claude Code, Codex and Cursor can use.     # Credits
    /errors   (paths drift in from the edges)                                        # Errors
          [docs2skill  https://docs.acme.dev                  [Generate]]     (button inside the field)
@@ -103,7 +103,7 @@ HERO         Turn any docs site into an agent skill.      (Geist 600, "agent ski
 FOOTER   Built on Spicrawl. Free key at app.spicrawl.com.        Docs GitHub llms.txt Apache-2.0 ascii.rest
 ```
 
-The page is about 2,400 px tall at 1440 and 2,800 px at 390. The headline fits on two lines at 1440 and three at 390.
+The page is about 2,400 px tall at 1440 and 2,800 px at 390. The headline fits on two lines at 1440 and at 390, and on three at 360 and below.
 
 ## Genericness test
 
@@ -136,6 +136,7 @@ Nothing moves on its own for long. The two scenes play twice, then rest on their
 | `bot-avatars`, `thinking-orbs`, `border-beam` | libraries.dev (npm), bundled into `island.js` | MIT |
 | `react`, `react-dom` | npm, bundled into `island.js` | MIT |
 | Geist, Geist Mono (variable, latin) | `@fontsource-variable/geist`, `@fontsource-variable/geist-mono` | SIL OFL 1.1 |
+| `righteous-latin-400-normal.woff2` (Righteous, latin, 400; the hero H1) | `@fontsource/righteous` 5.3.0, the file spicrawl.com serves. Copyright (c) 2011 Brian J. Bonislawsky DBA Astigmatic (AOETI), Reserved Font Name "Righteous" | SIL OFL 1.1 |
 | `ascii-rest-mono.woff2` (3 KB cut of JetBrains Mono) | https://ascii.rest/fonts/ascii-rest-mono.woff2 | SIL OFL 1.1 |
 | GitHub mark | Octicons `mark-github` | MIT |
 | `og.png` | `launch/social-preview.png` | the project's own asset |

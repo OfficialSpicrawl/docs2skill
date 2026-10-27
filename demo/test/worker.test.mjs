@@ -121,6 +121,10 @@ test("GET / serves the page; the beacon only appears with a token", async () => 
   // The H1 and the sub are plain and short.
   assert.equal(html.match(/<h1[^>]*>(.*?)<\/h1>/)[1].replace(/<[^>]+>/g, ""), "Turn any docs site into an agent skill.");
   assert.ok(html.includes('<p class="sub">Paste a docs URL. Get files Claude Code, Codex and Cursor can use.</p>'));
+  // The H1 is set in Righteous: self-hosted (same origin, so the CSP needs nothing), preloaded like Geist, with the metric fallback.
+  assert.ok(html.includes('<link rel="preload" href="/fonts/righteous-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>'));
+  assert.ok(html.includes('.hero h1 { font-family: Righteous, "Righteous Fallback", var(--ui); font-weight: 400;'));
+  assert.ok((await readFile(new URL("../public/fonts/righteous-latin-400-normal.woff2", import.meta.url))).length > 5000);
   assert.ok(!html.includes("cloudflareinsights"));
   const csp = res.headers.get("content-security-policy");
   const nonce = csp.match(/'nonce-([^']+)'/)[1];

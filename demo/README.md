@@ -12,7 +12,7 @@ demo/
   src/page.mjs          the page as one string: inline CSS and a small inline script, no framework; also the /llms.txt text and the 404 page
   island/main.jsx       three React islands (border beam, thinking orb, bot avatar), mounted into empty slots of the page
   build.mjs             bundles the island into public/island.<hash>.js (esbuild) and writes its name to src/island-url.mjs; wrangler runs it before `dev` and `deploy`, `npm test` before the tests (pretest)
-  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut published by ascii.rest), og.png, robots.txt, sitemap.xml, _headers (fonts and the island are immutable for a year); island.<hash>.js and src/island-url.mjs are generated and gitignored
+  public/               static assets: fonts (Geist, Geist Mono, Righteous for the H1, a 3 KB box-drawing cut published by ascii.rest), og.png, robots.txt, sitemap.xml, _headers (fonts and the island are immutable for a year); island.<hash>.js and src/island-url.mjs are generated and gitignored
   DESIGN.md             the brief, the concept and the design system of the page
   test/worker.test.mjs  node:test with a stubbed env and a stubbed fetch (run by `npm test` in the repo root)
 ```
