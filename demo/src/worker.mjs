@@ -5,6 +5,7 @@ import { Spicrawl, isSpicrawlError, AuthenticationError, InsufficientCreditsErro
 import { buildSkill, generate } from "../../llms-txt.mjs";
 import { limitKey, limits, MAX_PAGES, MIN_CREDITS, parseTarget, skillName } from "./guards.mjs";
 import { renderPage } from "./page.mjs";
+import { openpanelCsp, openpanelTag } from "./openpanel.mjs";
 
 const API = "https://api.spicrawl.com";
 const CREDITS_CACHE_KEY = "https://docs2skill.spicrawl.com/__budget"; // synthetic, only ever a cache key
@@ -208,19 +209,20 @@ export default {
       const nonce = btoa(randomUUID());
       const turnstileSiteKey = env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET ? env.TURNSTILE_SITE_KEY : "";
       const challenge = turnstileSiteKey ? " https://challenges.cloudflare.com" : ""; // Turnstile's script and its iframe
+      const op = openpanelCsp(env);
       const csp = [
         "default-src 'none'",
-        `script-src 'nonce-${nonce}' https://static.cloudflareinsights.com${challenge}`,
+        `script-src 'nonce-${nonce}' https://static.cloudflareinsights.com${challenge}${op.script}`,
         "style-src 'unsafe-inline' https://fonts.googleapis.com",
         "font-src https://fonts.gstatic.com",
         "img-src data:",
-        "connect-src 'self' https://cloudflareinsights.com",
+        `connect-src 'self' https://cloudflareinsights.com${op.connect}`,
         ...(turnstileSiteKey ? [`frame-src${challenge}`] : []),
         "base-uri 'none'",
         "form-action 'none'",
         "frame-ancestors 'none'",
       ].join("; ");
-      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce, turnstileSiteKey }), {
+      return new Response(request.method === "HEAD" ? null : renderPage({ beaconToken: env.BEACON_TOKEN, nonce, turnstileSiteKey, analytics: openpanelTag(env, nonce, "docs2skill") }), {
         headers: { ...headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "content-security-policy": csp },
       });
     }

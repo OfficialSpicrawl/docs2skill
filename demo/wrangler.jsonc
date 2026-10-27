@@ -2,7 +2,6 @@
   "$schema": "../node_modules/wrangler/config-schema.json",
   "name": "spicrawl-docs2skill-demo",
   "main": "src/worker.mjs",
-  "account_id": "036bd64d65479473f0effc8c4fb126ff",
   "compatibility_date": "2026-09-26",
   "compatibility_flags": ["nodejs_compat"],
   // Only the custom domain serves this Worker. A *.workers.dev or preview URL would be a second public address for the
@@ -15,7 +14,8 @@
   "analytics_engine_datasets": [{ "binding": "EVENTS", "dataset": "spicrawl_demo_events" }],
   // BEACON_TOKEN: Cloudflare Web Analytics token; empty serves the page without the beacon.
   // TURNSTILE_SITE_KEY: the Turnstile widget's site key; empty (or no TURNSTILE_SECRET) turns the bot check off.
-  "vars": { "BEACON_TOKEN": "", "TURNSTILE_SITE_KEY": "" }
+  "vars": { "TURNSTILE_SITE_KEY": "" }
+  // Secrets (not in code): `npx wrangler secret put <NAME>` for BEACON_TOKEN, OPENPANEL_CLIENT_ID and OPENPANEL_API_URL.
   // Secret, set with `wrangler secret put SPICRAWL_API_KEY` (locally: demo/.dev.vars).
   // Optional bot check: set vars.TURNSTILE_SITE_KEY and `wrangler secret put TURNSTILE_SECRET` (see README.md).
 }
