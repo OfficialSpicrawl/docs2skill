@@ -1,21 +1,27 @@
 # docs2skill live demo
 
-A Cloudflare Worker at <https://docs2skill.spicrawl.com>. A visitor pastes a docs URL, the Worker finds pages in the sitemap, reads at most 5 of them with one Spicrawl batch job and returns `llms.txt`, `SKILL.md` and `AGENTS.md`. The page shows the three files in tabs with Copy and per-file Download (a Blob in the browser, no zip), plus pages fetched, skipped and credits used.
+A Cloudflare Worker at <https://docs2skill.spicrawl.com>. A visitor pastes a docs URL, the Worker finds pages in the sitemap, reads at most 5 of them with one Spicrawl batch job and returns `llms.txt`, `SKILL.md`, `AGENTS.md` and the first lines of each reference file. The page shows them as an output folder (a file tree and a preview) with Copy and per-file Download (a Blob in the browser, no zip). It is populated at first paint with a real run of docs.spicrawl.com, so the output is on screen before anyone types.
 
 The Worker does not reimplement anything: it imports `generate` and `buildSkill` from [`../llms-txt.mjs`](../llms-txt.mjs), the same code the CLI runs, and adds the guards below. The page says so too: the demo reads up to 5 pages, the CLI does the whole site.
 
 ```
 demo/
-  wrangler.jsonc        name, route, bindings, vars
-  src/worker.mjs        GET /  ->  HTML      POST /api/generate  ->  JSON
-  src/guards.mjs        limits, the target check and the rate-limit key (a Worker entry may only export handlers, so they live here)
-  src/page.mjs          the page as one string: inline CSS and a small inline script, no framework
+  wrangler.jsonc        name, route, bindings, vars, the island build and the static assets
+  src/worker.mjs        GET /  ->  HTML    GET /llms.txt    GET /SKILL.md  ->  302    POST /api/generate  ->  JSON    404 page
+  src/guards.mjs        limits, the target check, the rate-limit key and the reference cut (a Worker entry may only export handlers, so they live here)
+  src/page.mjs          the page as one string: inline CSS and a small inline script, no framework; also the /llms.txt text and the 404 page
+  island/main.jsx       the effects: three React islands (border beam, thinking orb, bot avatar) and two ascii.rest pieces, mounted into empty slots of the page
+  build.mjs             bundles the island into public/island.js (esbuild); wrangler runs it before `dev` and `deploy`
+  public/               static assets: fonts (Geist, Geist Mono, a 3 KB box-drawing cut from ascii.rest), og.png, robots.txt, sitemap.xml, _headers; island.js is generated and gitignored
+  DESIGN.md             the brief, the concept and the design system of the page
   test/worker.test.mjs  node:test with a stubbed env and a stubbed fetch (run by `npm test` in the repo root)
 ```
 
+The page needs no framework: the demo (form, file tree, preview, Copy, Download, star count) is plain script in `page.mjs`. The effects are bundled apart: the libraries.dev packages (`border-beam`, `thinking-orbs`, `bot-avatars`) are React, the [ascii.rest](https://ascii.rest) pieces (MIT) are plain DOM. They read `<html data-run="idle|crawl|write|done|error">`, which the page script sets, and nothing else; without `island.js` the page is complete. The page keeps to 120 words of copy and a test counts them: add words, and `npm test` says so. `DESIGN.md` has the rest of the rules.
+
 ## Run it locally
 
-From the repo root, after `npm install`:
+From the repo root, after `npm install` (`npm run demo:dev` bundles the island first, through wrangler's `build.command`):
 
 ```sh
 # the demo's own key; never commit it (.dev.vars is gitignored)
@@ -36,7 +42,7 @@ npx wrangler secret put SPICRAWL_API_KEY     # paste the demo org's key
 npm run demo:deploy                           # from the repo root; or: npx wrangler deploy
 ```
 
-`wrangler.jsonc` routes the custom domain `docs2skill.spicrawl.com` (the zone must be on the account in `account_id`) and sets `workers_dev: false` and `preview_urls: false`, so that domain is the only public address of the Worker. To turn on Cloudflare Web Analytics, put the site token in `vars.BEACON_TOKEN`; with it empty the page ships no beacon.
+`npm run demo:deploy` bundles the island (`build.mjs` writes `public/island.js`) and uploads `public/` as static assets together with the Worker, so it needs the dev dependencies (`npm ci`, not `npm ci --omit=dev`). `wrangler.jsonc` routes the custom domain `docs2skill.spicrawl.com` (the zone must be on the account in `account_id`) and sets `workers_dev: false` and `preview_urls: false`, so that domain is the only public address of the Worker. To turn on Cloudflare Web Analytics, put the site token in `vars.BEACON_TOKEN`; with it empty the page ships no beacon.
 
 ### Optional: Cloudflare Turnstile
 
@@ -52,12 +58,15 @@ Both values must be set; with either one missing the check is off. Locally, Clou
 
 `POST /api/generate` with `Content-Type: application/json` and `{"url": "https://docs.example.com"}`. A bare host works too (`https://` is assumed). Only the site's origin is used. Any `max` above 5 is ignored; a lower one is honoured. With Turnstile on, the body also carries the widget's token as `"turnstile"`.
 
+Other routes: `GET /llms.txt` is this site's own index (`LLMS_TXT` in `src/page.mjs`), `GET /SKILL.md` redirects to the skill in the repo's `main`, and any other `GET` answers 404 as a page with a way back (JSON for `/api/*` and for `Accept: application/json`).
+
 ```jsonc
 // 200
 {
   "llmsTxt": "# Example Docs\n\n> ...",
   "skillMd": "---\nname: docs-example-com\ndescription: \"Use when working with ...\"\n---\n...",
   "agentsMd": "# Example Docs\n...",
+  "references": [{ "name": "index.md", "content": "# Example Docs\nSource: https://docs.example.com/\n\n..." }], // first 40 lines (3,000 characters) of each reference file
   "stats": { "pages": 5, "skipped": 0, "credits": 6, "host": "docs.example.com", "skillName": "docs-example-com", "durationMs": 21000 }
   // plus "message" when the job outlived the wait
 }
@@ -74,7 +83,7 @@ Both values must be set; with either one missing the check is off. Locally, Clou
 | 503 | the demo is out of credits, not configured, or Spicrawl is unavailable |
 | 502, 504 | Spicrawl could not read the site, or timed out |
 
-SDK errors are turned into short messages; the API key is never returned or logged (only the error code is).
+`references` has one entry per page the skill links to, in the order of `SKILL.md`; the CLI writes each page in full, the demo returns its first lines so the page can show what the file looks like. SDK errors are turned into short messages; the API key is never returned or logged (only the error code is).
 
 The skill name is the hostname in kebab case (`docs.example.com` becomes `docs-example-com`; a leading `www.` is dropped; 64 characters at most). `SKILL.md` links to a `references/` file per page that the demo does not return: the CLI writes that folder (`--skill`), and the page says so.
 
@@ -91,7 +100,7 @@ The skill name is the hostname in kebab case (`docs.example.com` becomes `docs-e
 
   The summary is cached for 60 seconds with `caches.default`, so a burst of visitors makes one call. If the summary cannot be read, or any number in it is missing or malformed, the run is refused (fail closed), also when the answer comes from the cache. `caches.default` does nothing on `*.workers.dev`; on the custom domain it caches.
 - **Batch wait.** The job is polled every 2 seconds for at most 60 seconds. If it is still running, the Worker cancels it, returns the pages that finished and says so in `stats.message`. Any other failure while waiting cancels the job too.
-- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`. With Turnstile on, the CSP also allows `challenges.cloudflare.com` for scripts and frames.
+- **Page.** A per-request CSP nonce; fetched content is only ever inserted with `textContent`. Fonts, `island.js` and images are same-origin (static assets), the only other host the page may call is `api.github.com` (the star count), and styles are inline (the effect libraries add `<style>` elements at run time). With Turnstile on, the CSP also allows `challenges.cloudflare.com` for scripts and frames.
 
 ## Analytics
 

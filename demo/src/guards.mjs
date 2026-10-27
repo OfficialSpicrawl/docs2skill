@@ -49,3 +49,12 @@ export function limitKey(ip) {
   const groups = tail === undefined ? a : [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill("0"), ...b];
   return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":");
 }
+
+// A reference file in the response is cut to its first lines: the pane shows what the file looks like, the CLI writes the page.
+export const REFERENCE_LINES = 40;
+export const REFERENCE_CHARS = 3000;
+export function referenceHead(text) {
+  const lines = text.split("\n");
+  if (lines.length <= REFERENCE_LINES && text.length <= REFERENCE_CHARS) return text;
+  return lines.slice(0, REFERENCE_LINES).join("\n").slice(0, REFERENCE_CHARS) + "\n";
+}

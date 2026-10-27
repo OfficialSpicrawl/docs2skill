@@ -2,3 +2,4 @@ node_modules/
 /out/
 .dev.vars
 .wrangler/
+/demo/public/island.js

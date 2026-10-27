@@ -3,8 +3,9 @@
 import assert from "node:assert/strict";
 import test, { afterEach, beforeEach } from "node:test";
 import { readFile } from "node:fs/promises";
-import { limitKey, limits, parseTarget, skillName } from "../src/guards.mjs";
+import { limitKey, limits, parseTarget, REFERENCE_LINES, REFERENCE_CHARS, referenceHead, skillName } from "../src/guards.mjs";
 import worker from "../src/worker.mjs";
+import { LLMS_TXT, renderPage, RUN, RUN_LINES, SAMPLE, SKILL_URL } from "../src/page.mjs";
 
 const KEY = "spicrawl_live_SECRET_KEY_FOR_TESTS";
 const SITE = "https://docs.example.com";
@@ -101,19 +102,110 @@ test("GET / serves the page; the beacon only appears with a token", async () => 
   assert.match(res.headers.get("content-type"), /text\/html/);
   const html = await res.text();
   assert.ok(html.includes("The demo reads up to 5 pages; the CLI does the whole site."));
-  assert.ok(html.includes("Run it on your whole site") && html.includes("https://app.spicrawl.com"));
-  assert.ok(html.includes('role="tablist"') && html.includes("docs.spicrawl.com"));
+  assert.ok(html.includes("Run it yourself") && html.includes("https://app.spicrawl.com"));
+  assert.ok(html.includes('id="tree"') && html.includes('class="drift"') && html.includes('id="flow"') && html.includes('id="term"') && html.includes("docs.spicrawl.com"));
+  assert.equal(html.match(/<h1[ >]/g).length, 1);
+  assert.ok(html.replace(/<[^>]+>/g, "").includes("$ npx skills add OfficialSpicrawl/docs2skill")); // the command is split into colored spans
+  assert.equal(html.match(/aria-label="Star on GitHub"/g).length, 2); // the header and the closing call to action
+  assert.equal(html.match(/<span class="cnt" hidden>/g).length, 2); // both get the live count from the GitHub API, once there is one worth showing
+  assert.ok(html.includes('<a class="btn primary lg" href="https://app.spicrawl.com">'));
+  assert.ok(html.includes('<script type="application/ld+json">') && html.includes('content="summary_large_image"') && html.includes("/og.png"));
+  assert.ok(html.includes('<link rel="alternate" type="text/plain" href="/llms.txt"'));
+  // Low on text: the visible copy outside code, the pane and the sample is short. (Tags, scripts and the pane are cut out.)
+  const prose = html
+    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<pre[\s\S]*?<\/pre>|<div class="pane-wrap"[\s\S]*?<\/nav>[\s\S]*?<\/div>\s*<\/div>\s*<\/div>|<[^>]+>/g, " ")
+    .replace(/&[a-z]+;|&#\d+;/g, " ")
+    .trim()
+    .split(/\s+/);
+  assert.ok(prose.length <= 120, `the page has ${prose.length} words of copy`);
+  // The H1 and the sub are plain and short.
+  assert.equal(html.match(/<h1[^>]*>(.*?)<\/h1>/)[1].replace(/<[^>]+>/g, ""), "Turn any docs site into an agent skill.");
+  assert.ok(html.includes('<p class="sub">Paste a docs URL. Get files Claude Code, Codex and Cursor can use.</p>'));
   assert.ok(!html.includes("cloudflareinsights"));
-  const nonce = res.headers.get("content-security-policy").match(/'nonce-([^']+)'/)[1];
+  const csp = res.headers.get("content-security-policy");
+  const nonce = csp.match(/'nonce-([^']+)'/)[1];
   assert.ok(html.includes(`<script nonce="${nonce}">`));
+  // Fonts and the island are same-origin; the only other host the page may call is the GitHub API (the star count).
+  assert.match(csp, /font-src 'self';/);
+  assert.match(csp, /connect-src 'self' https:\/\/api\.github\.com https:\/\/cloudflareinsights\.com;/);
+  assert.ok(!csp.includes("googleapis") && !csp.includes("gstatic"));
 
   const beacon = await (await worker.fetch(new Request("https://x.test/"), { ...env, BEACON_TOKEN: "abc123" }, ctx)).text();
   assert.ok(beacon.includes(`<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "abc123"}'></script>`));
   const junk = await (await worker.fetch(new Request("https://x.test/"), { ...env, BEACON_TOKEN: `x'"><script>` }, ctx)).text();
   assert.ok(!junk.includes("cloudflareinsights"));
 
-  assert.equal((await worker.fetch(new Request("https://x.test/nope"), env, ctx)).status, 404);
+  const json404 = await worker.fetch(new Request("https://x.test/nope", { headers: { accept: "application/json" } }), env, ctx);
+  assert.equal(json404.status, 404); // an API client gets JSON, a browser gets a page with a way back
+  assert.match(json404.headers.get("content-type"), /application\/json/);
+  assert.equal((await worker.fetch(new Request("https://x.test/api/nope"), env, ctx)).headers.get("content-type").startsWith("application/json"), true);
+  const gone = await worker.fetch(new Request("https://x.test/nope", { headers: { accept: "text/html,*/*" } }), env, ctx);
+  assert.equal(gone.status, 404);
+  assert.match(gone.headers.get("content-type"), /text\/html/);
+  assert.match(await gone.text(), /<h1>Not found\.<\/h1>[\s\S]*href="\/"/);
   assert.equal((await worker.fetch(new Request("https://x.test/api/generate"), env, ctx)).status, 405);
+});
+
+test("/llms.txt is this site's own index; /SKILL.md sends agents to the skill in the repo", async () => {
+  const { env } = makeEnv();
+  const res = await worker.fetch(new Request("https://docs2skill.spicrawl.com/llms.txt"), env, ctx);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /^text\/plain/);
+  const text = await res.text();
+  assert.equal(text, LLMS_TXT);
+  assert.match(text, /^# docs2skill\n\n> /);
+  assert.ok(text.includes("](https://github.com/OfficialSpicrawl/docs2skill)") && text.includes("](https://app.spicrawl.com)"));
+  assert.equal((await worker.fetch(new Request("https://x.test/llms.txt", { method: "HEAD" }), env, ctx)).status, 200);
+  assert.equal((await worker.fetch(new Request("https://x.test/llms.txt", { method: "POST" }), env, ctx)).status, 405);
+
+  const skill = await worker.fetch(new Request("https://docs2skill.spicrawl.com/SKILL.md"), env, ctx);
+  assert.equal(skill.status, 302);
+  assert.equal(skill.headers.get("location"), SKILL_URL);
+  assert.equal(SKILL_URL, "https://raw.githubusercontent.com/OfficialSpicrawl/docs2skill/main/SKILL.md");
+});
+
+test("the sample in the pane is the SKILL.md of the recorded run, and the page names no engine", async () => {
+  // videos/src/docs2skill/real.ts holds the output of `node llms-txt.mjs https://docs.spicrawl.com --max 8 --skill spicrawl-docs`.
+  const real = (await readFile(new URL("../../videos/src/docs2skill/real.ts", import.meta.url), "utf8")).match(/SKILL_MD = String\.raw`([\s\S]*?)`;/)[1];
+  assert.equal(SAMPLE.skillMd, real);
+  assert.equal(SAMPLE.count, 8);
+  assert.equal(SAMPLE.refs.length, 8);
+  assert.match(SAMPLE.refs[1].content, /^# Authentication\nSource: https:\/\/docs\.spicrawl\.com\/authentication\n$/);
+  assert.match(SAMPLE.llmsTxt, /^# Spicrawl\n\n> Spicrawl is a web data API for agents/);
+  assert.ok(SAMPLE.agentsMd.includes("](https://docs.spicrawl.com/credits)"));
+
+  // Spicrawl's internal engines are never named on the page.
+  const html = renderPage({ nonce: "n" }) + LLMS_TXT;
+  for (const word of ["moli", "chromium", "chrome", "camoufox", "obscura", "browserless", "headful", "headless", "playwright", "puppeteer"]) {
+    assert.ok(!new RegExp(`\\b${word}\\b`, "i").test(html), word);
+  }
+});
+
+test("the terminal shows what the CLI really printed, and Copy copies only the commands", async () => {
+  // LOG and CMD in videos/src/docs2skill/real.ts are the recorded output of the run the sample comes from.
+  const real = await readFile(new URL("../../videos/src/docs2skill/real.ts", import.meta.url), "utf8");
+  const log = Object.fromEntries([...real.matchAll(/^  (\w+): "(.*)",$/gm)].map(([, k, v]) => [k, v]));
+  const cmd = real.match(/export const CMD = "(.*)";/)[1];
+  assert.equal(RUN.cmd, cmd);
+  assert.deepEqual(RUN.log, [log.discover, log.fetch, log.p8, log.wrote, log.pages, log.skill]);
+  assert.equal(RUN.progress, log.p0);
+  assert.equal(RUN_LINES.at(-1), cmd);
+  const html = renderPage({ nonce: "n" });
+  for (const line of RUN.log) assert.ok(html.includes(line.replace(/&/g, "&amp;")), line);
+  // Copy: the three commands for the terminal, the install command for the chip: no prompt, no output.
+  assert.ok(html.includes(`data-text="${RUN_LINES.map((l) => l.replace(/&/g, "&amp;")).join("&#10;")}"`));
+  assert.ok(html.includes('data-text="npx skills add OfficialSpicrawl/docs2skill"'));
+});
+
+test("a long reference file is cut to its first lines in the response", () => {
+  const short = "# Page\nSource: https://docs.example.com/p\n\nA short page.\n";
+  assert.equal(referenceHead(short), short);
+  const many = `# Long\nSource: https://docs.example.com/l\n\n${Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n")}\n`;
+  const cut = referenceHead(many);
+  assert.equal(cut.split("\n").length, REFERENCE_LINES + 1);
+  assert.ok(cut.startsWith("# Long\nSource: https://docs.example.com/l\n\nline 0\n") && cut.endsWith("\n") && !cut.includes("line 199"));
+  const wide = referenceHead("x".repeat(10_000));
+  assert.ok(wide.length <= REFERENCE_CHARS + 1);
 });
 
 test("POST /api/generate returns the three files and stats, capped at 5 pages whatever the client asks", async () => {
@@ -134,6 +226,9 @@ test("POST /api/generate returns the three files and stats, capped at 5 pages wh
   assert.ok(data.skillMd.includes("](references/guide-page-"));
   assert.match(data.agentsMd, /^# Example Docs\n/);
   assert.ok(data.agentsMd.includes(`](${SITE}/guide/page-1)`));
+  assert.equal(data.references.length, 5); // one per page, the files the skill links to
+  assert.equal(data.references[0].name, "index.md");
+  assert.match(data.references[1].content, /^# Page 1\nSource: https:\/\/docs\.example\.com\/guide\/page-1\n\nThis is the first paragraph/);
   assert.equal(data.stats.pages, 5);
   assert.equal(data.stats.skipped, 0);
   assert.equal(data.stats.credits, 6); // 1 sitemap request + 5 pages

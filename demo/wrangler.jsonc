@@ -9,6 +9,10 @@
   "workers_dev": false,
   "preview_urls": false,
   "routes": [{ "pattern": "docs2skill.spicrawl.com", "custom_domain": true }],
+  // The React island (island/main.jsx) is bundled into public/island.js before `dev` and `deploy`. public/ is served as
+  // static assets (fonts, the island, og.png), so the Worker only ever sees the page, /llms.txt and the API.
+  "build": { "command": "node build.mjs" },
+  "assets": { "directory": "./public" },
   // 2 generate calls per minute per visitor (CF-Connecting-IP; an IPv6 visitor is keyed on its /64).
   "ratelimits": [{ "name": "LIMITER", "namespace_id": "2026102303", "simple": { "limit": 2, "period": 60 } }],
   "analytics_engine_datasets": [{ "binding": "EVENTS", "dataset": "spicrawl_demo_events" }],

@@ -3,8 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { Spicrawl, isSpicrawlError, AuthenticationError, InsufficientCreditsError, RateLimitError, APITimeoutError, APIConnectionError } from "@spicrawl/sdk";
 import { buildSkill, generate } from "../../llms-txt.mjs";
-import { limitKey, limits, MAX_PAGES, MIN_CREDITS, parseTarget, skillName } from "./guards.mjs";
-import { renderPage } from "./page.mjs";
+import { limitKey, limits, MAX_PAGES, MIN_CREDITS, parseTarget, referenceHead, skillName } from "./guards.mjs";
+import { LLMS_TXT, renderNotFound, renderPage, SKILL_URL } from "./page.mjs";
 import { openpanelCsp, openpanelTag } from "./openpanel.mjs";
 
 const API = "https://api.spicrawl.com";
@@ -190,6 +190,7 @@ async function handleGenerate(request, env, ctx) {
       llmsTxt: run.llms,
       skillMd: files.find((f) => f.path.endsWith("SKILL.md")).content,
       agentsMd: files.find((f) => f.path === "AGENTS.md").content,
+      references: files.filter((f) => f.path.includes("/references/")).map((f) => ({ name: f.path.split("/").pop(), content: referenceHead(f.content) })),
       stats,
     });
   } catch (err) {
@@ -213,10 +214,10 @@ export default {
       const csp = [
         "default-src 'none'",
         `script-src 'nonce-${nonce}' https://static.cloudflareinsights.com${challenge}${op.script}`,
-        "style-src 'unsafe-inline' https://fonts.googleapis.com",
-        "font-src https://fonts.gstatic.com",
-        "img-src data:",
-        `connect-src 'self' https://cloudflareinsights.com${op.connect}`,
+        "style-src 'unsafe-inline'", // the effect libraries add <style> elements at run time
+        "font-src 'self'",
+        "img-src 'self' data:",
+        `connect-src 'self' https://api.github.com https://cloudflareinsights.com${op.connect}`, // api.github.com: the star count
         ...(turnstileSiteKey ? [`frame-src${challenge}`] : []),
         "base-uri 'none'",
         "form-action 'none'",
@@ -226,9 +227,21 @@ export default {
         headers: { ...headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-cache", "content-security-policy": csp },
       });
     }
+    if (pathname === "/llms.txt") {
+      if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "Method not allowed." }, 405, { allow: "GET, HEAD" });
+      return new Response(request.method === "HEAD" ? null : LLMS_TXT, { headers: { ...headers, "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" } });
+    }
+    // The agent skill of this repo, read from GitHub so it is always the file in main.
+    if (pathname === "/SKILL.md") return Response.redirect(SKILL_URL, 302);
     if (pathname === "/api/generate") {
       if (request.method !== "POST") return json({ error: "Use POST." }, 405, { allow: "POST" });
       return handleGenerate(request, env, ctx);
+    }
+    if (request.method === "GET" && !pathname.startsWith("/api/") && !(request.headers.get("accept") ?? "").includes("application/json")) {
+      return new Response(renderNotFound(), {
+        status: 404,
+        headers: { ...headers, "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" },
+      });
     }
     return json({ error: "Not found." }, 404);
   },
