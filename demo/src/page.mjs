@@ -264,7 +264,8 @@ const JS = String.raw`
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
-export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = "" } = {}) {
+// analytics: the OpenPanel tag (openpanel.mjs), already built with the nonce; empty means none.
+export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = "", analytics = "" } = {}) {
   // Cloudflare Web Analytics beacon, only when a token is configured (tokens are hex; anything else is dropped).
   const beacon = /^[\w-]+$/.test(beaconToken)
     ? `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token": "${beaconToken}"}'></script>`
@@ -372,6 +373,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
 </footer>
 <script${nonce ? ` nonce="${esc(nonce)}"` : ""}>${JS}</script>
 ${beacon}
+${analytics}
 ${challenge}
 </body>
 </html>
