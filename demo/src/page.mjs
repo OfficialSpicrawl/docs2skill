@@ -158,6 +158,11 @@ const codeHtml = (text, annotate) => {
 const CSS = String.raw`
 @font-face { font-family: Geist; src: url(/fonts/geist-latin-wght-normal.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: "Geist Mono"; src: url(/fonts/geist-mono-latin-wght-normal.woff2) format("woff2"); font-weight: 100 900; font-display: swap; }
+/* Righteous (OFL, latin, 400 only): the hero h1, as on spicrawl.com. "Righteous Fallback" is local Arial resized to
+   Righteous's metrics (size-adjust = the h1's advance width in Righteous / in Arial; the overrides are hhea / upem
+   / size-adjust), so the swap does not move the headline. Re-measure it if the h1 text changes. */
+@font-face { font-family: Righteous; src: url(/fonts/righteous-latin-400-normal.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Righteous Fallback"; src: local(Arial), local("Liberation Sans"), local(Arimo); size-adjust: 106.49%; ascent-override: 92.48%; descent-override: 24.12%; line-gap-override: 0%; }
 /* The box-drawing glyphs of the tree and the pieces: a 3 KB cut of JetBrains Mono (OFL) from ascii.rest. */
 @font-face { font-family: "ascii.rest mono"; src: url(/fonts/ascii-rest-mono.woff2) format("woff2"); unicode-range: U+00B0, U+00B7, U+2022, U+2500-259F, U+25CF; }
 :root {
@@ -248,6 +253,7 @@ h1, h2, h3 { font-weight: 600; letter-spacing: -.03em; text-wrap: balance; }
 }
 .hero > .wrap { position: relative; z-index: 1; }
 h1 { max-width: 13em; margin: 0 auto 20px; font-size: clamp(2.5rem, 1rem + 5.6vw, 4.5rem); line-height: 1.04; }
+.hero h1 { font-family: Righteous, "Righteous Fallback", var(--ui); font-weight: 400; letter-spacing: -.01em; line-height: 1.1; }
 .hero { --travel: max(40px, calc((100vw - 1148px) / 2)); }
 .sub { margin: 0 auto 40px; color: var(--muted); font-size: 17px; }
 .ask { max-width: 720px; margin: 0 auto; }
@@ -904,6 +910,7 @@ export function renderPage({ beaconToken = "", nonce = "", turnstileSiteKey = ""
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2316181B'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='%23F9F9F9' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/geist-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/righteous-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>
 <style>${CSS}</style>
 </head>
